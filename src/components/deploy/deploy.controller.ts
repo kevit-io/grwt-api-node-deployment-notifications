@@ -62,23 +62,23 @@ export class DeployController {
 				repository: deploymentData.repository,
 			});
 
-		// Send notification and get thread ID
-		const threadId =
-			await notificationService.sendStartNotification(deploymentData);
+			// Send notification and get thread ID
+			const threadId =
+				await notificationService.sendStartNotification(deploymentData);
 
-		const response: IStartDeploymentResponse = {
-			threadId,
-		};
+			const response: IStartDeploymentResponse = {
+				threadId,
+			};
 
-		res.status(200).json({
-			success: true,
-			message: 'Deployment start notification sent',
-			data: response,
-		});
-	} catch (error) {
-		log.error('Error in startDeployment:', error);
-		next(error);
-	}
+			res.status(200).json({
+				success: true,
+				message: 'Deployment start notification sent',
+				data: response,
+			});
+		} catch (error) {
+			log.error('Error in startDeployment:', error);
+			next(error);
+		}
 	}
 
 	/**
