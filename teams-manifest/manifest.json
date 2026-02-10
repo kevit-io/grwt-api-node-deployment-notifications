@@ -1,0 +1,43 @@
+{
+	"$schema": "https://developer.microsoft.com/json-schemas/teams/v1.16/MicrosoftTeams.schema.json",
+	"manifestVersion": "1.16",
+	"version": "1.0.0",
+	"id": "d32176db-1d9f-4c23-9cc8-f008b026d3e7",
+	"packageName": "com.botprosolutions.deploymentbot",
+
+	"name": {
+		"short": "Services Deployment Bot",
+		"full": "Deployment Notification Bot"
+	},
+
+	"description": {
+		"short": "Deployment notifications for Service Projects",
+		"full": "Bot used for CI/CD deployment notifications"
+	},
+
+	"developer": {
+		"name": "Services DevOps Team",
+		"websiteUrl": "https://botprosolutions.com",
+		"privacyUrl": "https://botprosolutions.com/privacy",
+		"termsOfUseUrl": "https://botprosolutions.com/terms"
+	},
+
+	"accentColor": "#0078D4",
+
+	"icons": {
+		"color": "color.png",
+		"outline": "outline.png"
+	},
+
+	"bots": [
+		{
+			"botId": "d32176db-1d9f-4c23-9cc8-f008b026d3e7",
+			"scopes": ["team"],
+			"supportsFiles": false,
+			"supportsCalling": false,
+			"isNotificationOnly": true
+		}
+	],
+
+	"validDomains": ["botprosolutions.com"]
+}

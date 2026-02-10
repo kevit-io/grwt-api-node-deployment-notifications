@@ -1,0 +1,34 @@
+version: '3'
+
+services:
+  mongo:
+    image: mongo:latest
+    container_name: mongodb
+    ports:
+      - "27017:27017"
+    volumes:
+      - mongo-data:/data/db
+    networks:
+      - app-network
+
+  express-app:
+    build: .
+    container_name: express-app
+    ports:
+      - "5000:5000"
+    environment:
+      MONGODB_URL: mongodb://mongo:27017/ts-jump-start-db
+    depends_on:
+      - mongo
+    networks:
+      - app-network
+    volumes:
+      - .:/usr/src/mongo.:/usr/src/app
+    command: npm run start:prod
+
+volumes:
+  mongo-data:
+
+networks:
+  app-network:
+    driver: bridge

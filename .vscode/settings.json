@@ -1,0 +1,5 @@
+{
+  "explorer.compactFolders": false,
+  "javascript.preferences.importModuleSpecifier": "relative",
+  "typescript.preferences.importModuleSpecifier": "relative"
+}

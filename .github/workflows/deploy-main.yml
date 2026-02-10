@@ -1,0 +1,84 @@
+name: Deploy Main Branch onto standlone server # Name of the workflow
+
+on:
+  push:
+    branches:
+      - branch_name  # Trigger the workflow when code is pushed to the specified branch
+
+jobs:  
+  job-name:
+    runs-on: ubuntu-latest  # The job will run on the latest Ubuntu runner
+
+    steps:
+      # Step 1: Set up SSH with the private key stored in GitHub Secrets
+      - name: Set up SSH
+        run: |
+          mkdir -p /home/runner/.ssh  # Create SSH directory
+          echo "${{ secrets.SSH_PRIVATE_KEY }}" > /home/runner/.ssh/id_rsa  # Save the private key
+          chmod 600 /home/runner/.ssh/id_rsa  # Set proper permissions
+          ssh-keyscan -p ${{ secrets.SSH_PORT }} -H ${{ secrets.SSH_HOST }} >> /home/runner/.ssh/known_hosts  # Add remote server to known hosts
+
+      # Step 2: Create .env file dynamically using secrets stored in GitHub
+      - name: Create .env file dynamically
+        env:
+          ALLMYSECRETS: ${{ toJSON(secrets) }}
+        run: |
+          echo "Creating .env file dynamically..."
+          
+          # Extract only relevant secrets prefixed with 'DEV_' and exclude SSH, STAGE, and GitHub token
+          echo "$ALLMYSECRETS" | jq -r '
+            to_entries[]
+            | select(.key | startswith("DEV_"))
+            | select(.key | startswith("SSH_") | not)
+            | select(.key | ascii_downcase != "github_token")
+            | "\( .key | sub("^DEV_"; "") )=\(.value)"
+          ' >> .env
+          
+          echo ".env file created successfully."
+
+      # Step 3: Copy the .env file to the remote server
+      - name: Copy .env file to remote server
+        env:
+          SSH_PORT: ${{ secrets.SSH_PORT }}
+          SSH_USER: ${{ secrets.SSH_USER }}
+          SSH_HOST: ${{ secrets.SSH_HOST }}
+        run: |
+          echo "Copying .env file to remote server using scp..."
+          
+          # Remove old .env file if it exists
+          ssh -p $SSH_PORT -i /home/runner/.ssh/id_rsa $SSH_USER@$SSH_HOST "rm -f /home/$SSH_USER/path/to/project/.env"
+          
+          # Securely copy the new .env file to the server
+          scp -P $SSH_PORT -i /home/runner/.ssh/id_rsa .env $SSH_USER@$SSH_HOST:/home/$SSH_USER/path/to/project/.env
+          
+          echo ".env file copied successfully."
+
+      # Step 4: SSH into the server and deploy the latest code
+      - name: Deploy Application
+        run: |
+          echo "Logging into the server..."
+          ssh -p ${{ secrets.SSH_PORT }} -i /home/runner/.ssh/id_rsa ${{ secrets.SSH_USER }}@${{ secrets.SSH_HOST }} << 'EOF'
+            echo "Logged into the server"
+            
+            # Navigate to the project directory
+            cd /home/${{ secrets.SSH_USER }}/path/to/project
+            
+            # Reset any local changes and pull the latest code from the repository
+            git checkout branch_name  # Ensure we are on the correct branch
+            git fetch origin  # Fetch latest changes from remote repository
+            git reset --hard origin/branch_name  # Reset the branch to match remote
+            
+            # Install dependencies
+            npm i  # Install required packages
+            
+            # Remove old build or lib or dist directory and generate a fresh one
+            rm -r dist/
+            npm run build
+            
+            # Restart the application using PM2
+            echo "Restarting PM2 process..."
+            pm2 restart ecosystem.main.config.js || pm2 start ecosystem.main.config.js  # Restart or start the app
+            pm2 save  # Save PM2 process state
+          EOF
+          
+          echo "Deployment completed successfully."
