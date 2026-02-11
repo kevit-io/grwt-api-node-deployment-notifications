@@ -21,11 +21,11 @@
   "dependencies": {
     "adaptivecards": "^3.0.5",
     "axios": "^1.13.4",
-    "body-parser": "^1.20.2",
+    "body-parser": "^1.20.4",
     "botbuilder": "^4.23.3",
     "cors": "^2.8.5",
     "dotenv": "^16.4.5",
-    "express": "^4.19.2",
+    "express": "^4.22.1",
     "express-validator": "^7.2.0",
     "nodemailer": "^8.0.1",
     "validator": "^13.12.0",
