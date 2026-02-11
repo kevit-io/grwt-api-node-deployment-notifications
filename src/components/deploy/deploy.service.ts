@@ -11,6 +11,7 @@ import {
 	IStartDeploymentRequest,
 	IFinishDeploymentRequest,
 } from './deploy.interface';
+import { DeploymentEmailService } from './deploy.email';
 import { log } from '../../shared/utils/logger';
 import Config from '../../config';
 
@@ -21,6 +22,8 @@ export class DeployNotificationService {
 	private adapter: BotFrameworkAdapter;
 
 	private conversationReference: Partial<ConversationReference> | null = null;
+
+	private emailService: DeploymentEmailService;
 
 	constructor() {
 		// Configure Microsoft App Credentials with tenant-specific settings
@@ -44,6 +47,8 @@ export class DeployNotificationService {
 			log.error(`Bot error: ${error.message}`, error);
 			await context.sendActivity('Sorry, an error occurred.');
 		};
+
+		this.emailService = new DeploymentEmailService();
 	}
 
 	/**
@@ -150,10 +155,13 @@ export class DeployNotificationService {
 							throw new Error('Failed to get activity ID from Teams response');
 						}
 
+						// Fire-and-forget email (don’t block Teams response)
+						void this.emailService.sendStartEmail(deploymentData);
+
 						log.info(
 							`Deployment start notification sent. Thread ID: ${activityId}`,
 							{
-								service: deploymentData.service,
+								repoName: deploymentData.repoName,
 								environment: deploymentData.environment,
 							},
 						);
@@ -207,14 +215,17 @@ export class DeployNotificationService {
 							type: 'message',
 							attachments: [card],
 						};
-
 						await context.sendActivity(activity);
+
+						// Fire-and-forget email
+						void this.emailService.sendFinishEmail(resultData);
+
 						log.info(
 							`Deployment ${resultData.status} notification sent as reply to thread ${resultData.threadId}`,
 							{
-								service: resultData.service,
+								repoName: resultData.repoName,
 								environment: resultData.environment,
-								durationSeconds: resultData.durationSeconds,
+								durationInSeconds: resultData.durationInSeconds,
 							},
 						);
 						resolve();

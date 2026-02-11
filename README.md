@@ -44,15 +44,13 @@ npm run test:e2e
 
 ### Run in Docker Environment
 
-- Run docker-compose file: 
+- Run docker-compose file:
 
 ```bash
 $ docker-compose up --build
-````
+```
 
-
---- 
-
+---
 
 # DevOps & Deployment
 
@@ -103,4 +101,126 @@ Unlike regular JavaScript projects, an **Express.js + TypeScript** application m
 - The `tsconfig.json` settings define how the compilation happens.  
 - During deployment, **the workflow ensures the TypeScript code is built (`npm run build`)** before restarting the app.
 
-For further assistance, reach out to the **DevOps team**. 🚀
+For further assistance, reach out to the **DevOps team**.
+
+---
+
+# Deployment Notifications API
+
+Base path: `/deploy`
+
+## POST `/deploy/start`
+Sends a **deployment started** notification to Microsoft Teams and returns a `threadId`.
+
+### Request body
+Required:
+- `teamId` (string)
+- `channelId` (string)
+- `repoName` (string)
+- `repoLink` (string) – the link behind display value `repoName`
+- `commitShaName` (string) – display value
+- `commitShaLink` (string) – the link behind display value `commitShaName`
+- `startTime` (string, ISO-8601)
+- `actionLink` (string) – shown as a button
+- `triggerBy` (string)
+- `environment` (string) – expected values: `dev` | `staging` | `prod`
+
+Optional:
+- `emailIds` (string) – comma-separated string; if present and contains at least one valid email, an email is sent
+- `adaptiveCard` (object) – override the generated Teams card
+
+### Example
+```json
+{
+	"teamId": "team-id",
+	"channelId": "19:channel-id@thread.tacv2",
+	"repoName": "my-service",
+	"repoLink": "https://github.com/org/my-service",
+	"commitShaName": "a1b2c3d",
+	"commitShaLink": "https://github.com/org/my-service/commit/a1b2c3d4e5",
+	"startTime": "2026-02-10T10:10:00.000Z",
+	"actionLink": "https://github.com/org/my-service/actions/runs/123",
+	"triggerBy": "parth",
+	"environment": "staging",
+	"emailIds": "dev1@company.com, dev2@company.com"
+}
+```
+
+### Response
+```json
+{
+	"success": true,
+	"message": "Deployment start notification sent",
+	"data": {
+		"threadId": "<teams-thread-id>"
+	}
+}
+```
+
+## POST `/deploy/result`
+Sends a **deployment result** notification to Microsoft Teams as a reply to `threadId`.
+
+### Request body
+Required:
+- `teamId` (string)
+- `channelId` (string)
+- `threadId` (string)
+- `repoName` (string)
+- `repoLink` (string)
+- `durationInSeconds` (number)
+- `startTime` (string, ISO-8601)
+- `status` (string) – `success` | `fail`
+- `triggerBy` (string)
+- `environment` (string) – expected values: `dev` | `staging` | `prod`
+
+Optional:
+- `errorMessage` (string) – trimmed to 300 characters in Teams card + email
+- `emailIds` (string) – comma-separated string; if present and contains at least one valid email, an email is sent
+- `adaptiveCard` (object) – override the generated Teams card
+
+### Example (success)
+```json
+{
+	"teamId": "team-id",
+	"channelId": "19:channel-id@thread.tacv2",
+	"threadId": "<teams-thread-id>",
+	"repoName": "my-service",
+	"repoLink": "https://github.com/org/my-service",
+	"durationInSeconds": 93,
+	"startTime": "2026-02-10T10:10:00.000Z",
+	"status": "success",
+	"triggerBy": "parth",
+	"environment": "staging",
+	"emailIds": "dev1@company.com, dev2@company.com"
+}
+```
+
+### Example (fail)
+```json
+{
+	"teamId": "team-id",
+	"channelId": "19:channel-id@thread.tacv2",
+	"threadId": "<teams-thread-id>",
+	"repoName": "my-service",
+	"repoLink": "https://github.com/org/my-service",
+	"durationInSeconds": 93,
+	"startTime": "2026-02-10T10:10:00.000Z",
+	"status": "fail",
+	"triggerBy": "parth",
+	"environment": "staging",
+	"errorMessage": "Build failed due to ...",
+	"emailIds": "dev1@company.com, dev2@company.com"
+}
+```
+
+### Notes
+- Times shown in Teams cards & emails are formatted as **IST (Asia/Kolkata)** and explicitly include `IST`.
+
+## Email (SMTP) configuration
+Emails use SMTP env vars:
+- `SMTP_HOST`
+- `SMTP_PORT`
+- `SMTP_SECURE` (`true` for 465, otherwise `false`)
+- `SMTP_USER`
+- `SMTP_PASS`
+- `SMTP_FROM` (optional; defaults to `SMTP_USER`)

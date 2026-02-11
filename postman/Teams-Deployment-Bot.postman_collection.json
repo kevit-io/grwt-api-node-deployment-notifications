@@ -1,0 +1,71 @@
+{
+	"info": {
+		"name": "Teams Deployment Bot",
+		"schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json"
+	},
+	"item": [
+		{
+			"name": "deploy/start",
+			"request": {
+				"method": "POST",
+				"header": [
+					{
+						"key": "Content-Type",
+						"value": "application/json"
+					}
+				],
+				"url": {
+					"raw": "{{base_url}}/deploy/start",
+					"host": ["{{base_url}}"],
+					"path": ["deploy", "start"]
+				},
+				"body": {
+					"mode": "raw",
+					"raw": "{\n\t\"teamId\": \"team-id\",\n\t\"channelId\": \"19:channel-id@thread.tacv2\",\n\t\"repoName\": \"my-service\",\n\t\"repoLink\": \"https://github.com/org/my-service\",\n\t\"commitShaName\": \"a1b2c3d\",\n\t\"commitShaLink\": \"https://github.com/org/my-service/commit/a1b2c3d4e5\",\n\t\"startTime\": \"2026-02-10T10:10:00.000Z\",\n\t\"actionLink\": \"https://github.com/org/my-service/actions/runs/123\",\n\t\"triggerBy\": \"parth\",\n\t\"environment\": \"staging\",\n\t\"emailIds\": \"dev1@company.com, dev2@company.com\"\n}"
+				}
+			}
+		},
+		{
+			"name": "deploy/result (success)",
+			"request": {
+				"method": "POST",
+				"header": [
+					{
+						"key": "Content-Type",
+						"value": "application/json"
+					}
+				],
+				"url": {
+					"raw": "{{base_url}}/deploy/result",
+					"host": ["{{base_url}}"],
+					"path": ["deploy", "result"]
+				},
+				"body": {
+					"mode": "raw",
+					"raw": "{\n\t\"teamId\": \"team-id\",\n\t\"channelId\": \"19:channel-id@thread.tacv2\",\n\t\"threadId\": \"<teams-thread-id>\",\n\t\"repoName\": \"my-service\",\n\t\"repoLink\": \"https://github.com/org/my-service\",\n\t\"durationInSeconds\": 93,\n\t\"startTime\": \"2026-02-10T10:10:00.000Z\",\n\t\"status\": \"success\",\n\t\"triggerBy\": \"parth\",\n\t\"environment\": \"staging\",\n\t\"emailIds\": \"dev1@company.com, dev2@company.com\"\n}"
+				}
+			}
+		},
+		{
+			"name": "deploy/result (fail)",
+			"request": {
+				"method": "POST",
+				"header": [
+					{
+						"key": "Content-Type",
+						"value": "application/json"
+					}
+				],
+				"url": {
+					"raw": "{{base_url}}/deploy/result",
+					"host": ["{{base_url}}"],
+					"path": ["deploy", "result"]
+				},
+				"body": {
+					"mode": "raw",
+					"raw": "{\n\t\"teamId\": \"team-id\",\n\t\"channelId\": \"19:channel-id@thread.tacv2\",\n\t\"threadId\": \"<teams-thread-id>\",\n\t\"repoName\": \"my-service\",\n\t\"repoLink\": \"https://github.com/org/my-service\",\n\t\"durationInSeconds\": 93,\n\t\"startTime\": \"2026-02-10T10:10:00.000Z\",\n\t\"status\": \"fail\",\n\t\"triggerBy\": \"parth\",\n\t\"environment\": \"staging\",\n\t\"errorMessage\": \"Build failed due to ...\",\n\t\"emailIds\": \"dev1@company.com, dev2@company.com\"\n}"
+				}
+			}
+		}
+	]
+}

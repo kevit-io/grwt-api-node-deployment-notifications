@@ -3,19 +3,20 @@ import {
 	IStartDeploymentRequest,
 	IFinishDeploymentRequest,
 } from './deploy.interface';
+import { formatToIST } from '../../shared/utils/timezone';
+import { trimToMaxLength } from '../../shared/utils/text';
+
+function asMarkdownLink(text: string, url: string): string {
+	return url ? `[${text}](${url})` : text;
+}
 
 /**
  * Adaptive Card builder for deployment notifications
  */
 export class AdaptiveCardBuilder {
-	/**
-	 * Creates an Adaptive Card for deployment start notification
-	 * If custom adaptiveCard is provided in the request, it will be used instead
-	 */
 	static createStartDeploymentCard(
 		deploymentData: IStartDeploymentRequest,
 	): Attachment {
-		// If custom adaptive card is provided, use it
 		if (
 			deploymentData.adaptiveCard &&
 			Object.keys(deploymentData.adaptiveCard).length > 0
@@ -26,55 +27,50 @@ export class AdaptiveCardBuilder {
 			};
 		}
 
-		// Otherwise, generate default card from data
-		const startDate = new Date(deploymentData.startTime);
-		const formattedTime = startDate.toLocaleString('en-US', {
-			dateStyle: 'medium',
-			timeStyle: 'short',
-		});
+		const title = `🔵 ${deploymentData.repoName} - [${deploymentData.environment}] - Deployment Started`;
+		const startTime = formatToIST(deploymentData.startTime);
 
 		const card = {
 			type: 'AdaptiveCard',
 			$schema: 'http://adaptivecards.io/schemas/adaptive-card.json',
-			version: '1.4',
+			version: '1.5',
 			body: [
 				{
 					type: 'TextBlock',
-					text: '🚀 Deployment Started',
+					text: title,
 					weight: 'Bolder',
-					size: 'Large',
-					color: 'Attention',
+					size: 'Medium',
+					wrap: true,
 				},
 				{
 					type: 'FactSet',
+					spacing: 'Medium',
 					facts: [
 						{
-							title: 'Service:',
-							value: deploymentData.service,
+							title: 'Repository',
+							value: asMarkdownLink(
+								deploymentData.repoName,
+								deploymentData.repoLink,
+							),
 						},
 						{
-							title: 'Repository:',
-							value: deploymentData.repository,
+							title: 'Trigger Link',
+							value: asMarkdownLink(
+								deploymentData.triggerTitle,
+								deploymentData.triggerLink,
+							),
 						},
 						{
-							title: 'Environment:',
+							title: 'Environment',
 							value: deploymentData.environment,
 						},
 						{
-							title: 'Version:',
-							value: deploymentData.version,
+							title: 'Triggered by',
+							value: deploymentData.triggerBy,
 						},
 						{
-							title: 'Commit SHA:',
-							value: deploymentData.commitSha.substring(0, 7), // Short SHA
-						},
-						{
-							title: 'Triggered By:',
-							value: deploymentData.triggeredBy,
-						},
-						{
-							title: 'Start Time:',
-							value: formattedTime,
+							title: 'Start time',
+							value: startTime,
 						},
 					],
 				},
@@ -82,13 +78,8 @@ export class AdaptiveCardBuilder {
 			actions: [
 				{
 					type: 'Action.OpenUrl',
-					title: 'View Pipeline',
-					url: deploymentData.pipelineUrl,
-				},
-				{
-					type: 'Action.OpenUrl',
-					title: 'View Repository',
-					url: deploymentData.repositoryUrl,
+					title: 'Go to Action Runner',
+					url: deploymentData.actionLink,
 				},
 			],
 		};
@@ -99,12 +90,7 @@ export class AdaptiveCardBuilder {
 		};
 	}
 
-	/**
-	 * Creates an Adaptive Card for successful deployment
-	 * If custom adaptiveCard is provided in the request, it will be used instead
-	 */
 	static createSuccessCard(resultData: IFinishDeploymentRequest): Attachment {
-		// If custom adaptive card is provided, use it
 		if (
 			resultData.adaptiveCard &&
 			Object.keys(resultData.adaptiveCard).length > 0
@@ -115,78 +101,47 @@ export class AdaptiveCardBuilder {
 			};
 		}
 
-		// Otherwise, generate default card from data
-		const endDate = new Date(resultData.endTime);
-		const formattedTime = endDate.toLocaleString('en-US', {
-			dateStyle: 'medium',
-			timeStyle: 'short',
-		});
-
-		const durationMinutes = Math.floor(resultData.durationSeconds / 60);
-		const durationRemainingSeconds = resultData.durationSeconds % 60;
-		const formattedDuration =
-			durationMinutes > 0
-				? `${durationMinutes}m ${durationRemainingSeconds}s`
-				: `${durationRemainingSeconds}s`;
+		const title = `🟢 ${resultData.repoName} - [${resultData.environment}] - Deployment succeeded`;
+		const startTime = formatToIST(resultData.startTime);
 
 		const card = {
 			type: 'AdaptiveCard',
 			$schema: 'http://adaptivecards.io/schemas/adaptive-card.json',
-			version: '1.4',
+			version: '1.5',
 			body: [
 				{
 					type: 'TextBlock',
-					text: '✅ Deployment Successful',
+					text: title,
 					weight: 'Bolder',
-					size: 'Large',
+					size: 'Medium',
 					color: 'Good',
-				},
-				{
-					type: 'TextBlock',
-					text: `The deployment of **${resultData.service}** to **${resultData.environment}** completed successfully.`,
 					wrap: true,
 				},
 				{
 					type: 'FactSet',
+					spacing: 'Medium',
 					facts: [
 						{
-							title: 'Service:',
-							value: resultData.service,
+							title: 'Repository',
+							value: asMarkdownLink(resultData.repoName, resultData.repoLink),
 						},
 						{
-							title: 'Repository:',
-							value: resultData.repository,
-						},
-						{
-							title: 'Environment:',
+							title: 'Environment',
 							value: resultData.environment,
 						},
 						{
-							title: 'End Time:',
-							value: formattedTime,
+							title: 'Status',
+							value: 'SUCCESS',
 						},
 						{
-							title: 'Duration:',
-							value: formattedDuration,
+							title: 'Triggered by',
+							value: resultData.triggerBy,
+						},
+						{
+							title: 'Duration',
+							value: `${String(resultData.durationInSeconds)} seconds (started at ${startTime})`,
 						},
 					],
-				},
-			],
-			actions: [
-				{
-					type: 'Action.OpenUrl',
-					title: 'View Pipeline',
-					url: resultData.pipelineUrl,
-				},
-				{
-					type: 'Action.OpenUrl',
-					title: 'View Logs',
-					url: resultData.logsUrl,
-				},
-				{
-					type: 'Action.OpenUrl',
-					title: 'View Repository',
-					url: resultData.repositoryUrl,
 				},
 			],
 		};
@@ -213,88 +168,58 @@ export class AdaptiveCardBuilder {
 			};
 		}
 
-		// Otherwise, generate default card from data
-		const endDate = new Date(resultData.endTime);
-		const formattedTime = endDate.toLocaleString('en-US', {
-			dateStyle: 'medium',
-			timeStyle: 'short',
-		});
-
-		const durationMinutes = Math.floor(resultData.durationSeconds / 60);
-		const durationRemainingSeconds = resultData.durationSeconds % 60;
-		const formattedDuration =
-			durationMinutes > 0
-				? `${durationMinutes}m ${durationRemainingSeconds}s`
-				: `${durationRemainingSeconds}s`;
+		const title = `🔴 ${resultData.repoName} - [${resultData.environment}] - Deployment failed`;
+		const startTime = formatToIST(resultData.startTime);
+		const errorMessage = resultData.errorMessage
+			? trimToMaxLength(resultData.errorMessage, 300)
+			: '';
 
 		const card = {
 			type: 'AdaptiveCard',
 			$schema: 'http://adaptivecards.io/schemas/adaptive-card.json',
-			version: '1.4',
+			version: '1.5',
 			body: [
 				{
 					type: 'TextBlock',
-					text: '❌ Deployment Failed',
+					text: title,
 					weight: 'Bolder',
-					size: 'Large',
+					size: 'Medium',
 					color: 'Attention',
-				},
-				{
-					type: 'TextBlock',
-					text: `The deployment of **${resultData.service}** to **${resultData.environment}** encountered an error.`,
 					wrap: true,
 				},
-				...(resultData.errorSummary
-					? [
-							{
-								type: 'TextBlock',
-								text: `**Error:** ${resultData.errorSummary}`,
-								wrap: true,
-								color: 'Attention',
-							},
-						]
-					: []),
 				{
 					type: 'FactSet',
+					spacing: 'Medium',
 					facts: [
 						{
-							title: 'Service:',
-							value: resultData.service,
+							title: 'Repository',
+							value: asMarkdownLink(resultData.repoName, resultData.repoLink),
 						},
 						{
-							title: 'Repository:',
-							value: resultData.repository,
-						},
-						{
-							title: 'Environment:',
+							title: 'Environment',
 							value: resultData.environment,
 						},
 						{
-							title: 'End Time:',
-							value: formattedTime,
+							title: 'Status',
+							value: 'FAIL',
 						},
 						{
-							title: 'Duration:',
-							value: formattedDuration,
+							title: 'Triggered by',
+							value: resultData.triggerBy,
 						},
+						{
+							title: 'Duration',
+							value: `${String(resultData.durationInSeconds)} seconds (started at ${startTime})`,
+						},
+						...(errorMessage && resultData.logsLink
+							? [
+									{
+										title: 'Error',
+										value: asMarkdownLink(errorMessage, resultData.logsLink),
+									},
+								]
+							: []),
 					],
-				},
-			],
-			actions: [
-				{
-					type: 'Action.OpenUrl',
-					title: 'View Pipeline',
-					url: resultData.pipelineUrl,
-				},
-				{
-					type: 'Action.OpenUrl',
-					title: 'View Error Logs',
-					url: resultData.logsUrl,
-				},
-				{
-					type: 'Action.OpenUrl',
-					title: 'View Repository',
-					url: resultData.repositoryUrl,
 				},
 			],
 		};

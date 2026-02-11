@@ -31,15 +31,14 @@ export class DeployController {
 			const requiredFields = [
 				'teamId',
 				'channelId',
-				'service',
-				'repository',
-				'repositoryUrl',
-				'environment',
-				'version',
-				'pipelineUrl',
-				'commitSha',
-				'triggeredBy',
+				'repoName',
+				'repoLink',
+				'triggerLink',
+				'triggerTitle',
 				'startTime',
+				'actionLink',
+				'triggerBy',
+				'environment',
 			];
 
 			const missingFields = requiredFields.filter(
@@ -56,10 +55,9 @@ export class DeployController {
 			}
 
 			log.info('Starting deployment notification', {
-				service: deploymentData.service,
+				repoName: deploymentData.repoName,
 				environment: deploymentData.environment,
-				version: deploymentData.version,
-				repository: deploymentData.repository,
+				triggerBy: deploymentData.triggerBy,
 			});
 
 			// Send notification and get thread ID
@@ -98,15 +96,13 @@ export class DeployController {
 				'teamId',
 				'channelId',
 				'threadId',
-				'service',
-				'repository',
-				'repositoryUrl',
-				'environment',
+				'repoName',
+				'repoLink',
+				'durationInSeconds',
+				'startTime',
 				'status',
-				'endTime',
-				'durationSeconds',
-				'pipelineUrl',
-				'logsUrl',
+				'triggerBy',
+				'environment',
 			];
 
 			const missingFields = requiredFields.filter(
@@ -123,10 +119,10 @@ export class DeployController {
 			}
 
 			// Validate status value
-			if (resultData.status !== 'success' && resultData.status !== 'failure') {
+			if (resultData.status !== 'success' && resultData.status !== 'fail') {
 				throw new HttpException(
 					400,
-					'Invalid status. Must be "success" or "failure"',
+					'Invalid status. Must be "success" or "fail"',
 					'VALIDATION_ERROR',
 					'Invalid status value',
 				);
@@ -135,7 +131,7 @@ export class DeployController {
 			log.info('Finishing deployment notification', {
 				threadId: resultData.threadId,
 				status: resultData.status,
-				service: resultData.service,
+				repoName: resultData.repoName,
 				environment: resultData.environment,
 			});
 
