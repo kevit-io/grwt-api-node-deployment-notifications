@@ -58,7 +58,7 @@ export class TeamsMessageBuilder {
 		const details = [
 			`- **Repository:** ${mdLink(data.repoName, data.repoLink)}`,
 			`- **Environment:** ${data.environment}`,
-			`- **Status:** SUCCESS`,
+			'- **Status:** SUCCESS',
 			`- **Triggered by:** ${data.triggerBy}`,
 			`- **Duration:** ${String(data.durationInSeconds)} seconds (started at ${startTime})`,
 		];
@@ -78,7 +78,7 @@ export class TeamsMessageBuilder {
 		const details: string[] = [
 			`- **Repository:** ${mdLink(data.repoName, data.repoLink)}`,
 			`- **Environment:** ${data.environment}`,
-			`- **Status:** FAIL`,
+			'- **Status:** FAIL',
 			`- **Triggered by:** ${data.triggerBy}`,
 			`- **Duration:** ${String(data.durationInSeconds)} seconds (started at ${startTime})`,
 		];

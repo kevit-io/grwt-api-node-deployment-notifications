@@ -170,21 +170,29 @@ export class DeploymentEmailService {
 
 			// If logs link exists, show error as link; otherwise show in code block
 			if (data.logsLink) {
-				html = html.replace('{{#ifLogsLink}}', '').replace('{{/ifLogsLink}}', '');
+				html = html
+					.replace('{{#ifLogsLink}}', '')
+					.replace('{{/ifLogsLink}}', '');
 				// Remove the ifErrorOnly section
 				const errorOnlyStart = html.indexOf('{{#ifErrorOnly}}');
 				const errorOnlyEnd = html.indexOf('{{/ifErrorOnly}}');
 				if (errorOnlyStart !== -1 && errorOnlyEnd !== -1) {
-					html = html.slice(0, errorOnlyStart) + html.slice(errorOnlyEnd + '{{/ifErrorOnly}}'.length);
+					html =
+						html.slice(0, errorOnlyStart) +
+						html.slice(errorOnlyEnd + '{{/ifErrorOnly}}'.length);
 				}
 			} else {
 				// Remove the ifLogsLink section
 				const logsLinkStart = html.indexOf('{{#ifLogsLink}}');
 				const logsLinkEnd = html.indexOf('{{/ifLogsLink}}');
 				if (logsLinkStart !== -1 && logsLinkEnd !== -1) {
-					html = html.slice(0, logsLinkStart) + html.slice(logsLinkEnd + '{{/ifLogsLink}}'.length);
+					html =
+						html.slice(0, logsLinkStart) +
+						html.slice(logsLinkEnd + '{{/ifLogsLink}}'.length);
 				}
-				html = html.replace('{{#ifErrorOnly}}', '').replace('{{/ifErrorOnly}}', '');
+				html = html
+					.replace('{{#ifErrorOnly}}', '')
+					.replace('{{/ifErrorOnly}}', '');
 			}
 		} else {
 			// No error message - remove entire error section
