@@ -8,7 +8,6 @@ import {
 	IFinishDeploymentRequest,
 	IStartDeploymentRequest,
 	IDeployFinishEmailPayload,
-	IDeployStartEmailPayload,
 } from './deploy.interface';
 
 function isValidEmail(email: string): boolean {
@@ -28,9 +27,39 @@ export function parseEmailIds(emailIds?: string): string[] {
 }
 
 function getTemplatesDir(): string {
-	// Compiled JS will live under lib/components/deploy, so go up 3 levels to lib/and then to components/deploy/email-templates.
-	// In ts-node/dev, __dirname points under src/components/deploy.
-	return path.resolve(__dirname, 'email-templates');
+	// Templates must be readable in both scenarios:
+	// - dev: running TS from src/**
+	// - prod: running compiled JS from lib/**
+	//
+	// In production, src/** usually isn't shipped, so we first look for templates next to lib/**.
+	// In dev, we fall back to src/**.
+	const candidates = [
+		path.resolve(
+			process.cwd(),
+			'lib',
+			'components',
+			'deploy',
+			'email-templates',
+		),
+		path.resolve(
+			process.cwd(),
+			'src',
+			'components',
+			'deploy',
+			'email-templates',
+		),
+	];
+
+	for (const dir of candidates) {
+		try {
+			if (fs.existsSync(dir)) return dir;
+		} catch {
+			// ignore
+		}
+	}
+
+	// As a last resort, keep the original src path (will throw on read if missing).
+	return candidates[candidates.length - 1];
 }
 
 function loadTemplate(templateName: string): string {
@@ -76,7 +105,8 @@ export class DeploymentEmailService {
 		const recipients = parseEmailIds(data.emailIds);
 		if (recipients.length === 0) return;
 
-		const payload: IDeployStartEmailPayload = {
+		// Keep email content aligned with the Teams message fields.
+		const payload = {
 			repoName: data.repoName,
 			repoLink: data.repoLink,
 			triggerTitle: data.triggerTitle,
@@ -87,7 +117,7 @@ export class DeploymentEmailService {
 			startTimeIst: formatToIST(data.startTime),
 		};
 
-		const subject = `${data.environment} - deploy started for ${data.repoName}`;
+		const subject = `Deployment started for ${data.repoName} on ${data.environment}`;
 
 		const html = render(loadTemplate('deploy-start.html'), {
 			...payload,
@@ -111,6 +141,7 @@ export class DeploymentEmailService {
 			? trimToMaxLength(data.errorMessage, 300)
 			: '';
 
+		// Keep email content aligned with the Teams message fields.
 		const payload: IDeployFinishEmailPayload = {
 			repoName: data.repoName,
 			repoLink: data.repoLink,
@@ -124,27 +155,48 @@ export class DeploymentEmailService {
 			startTimeIst: formatToIST(data.startTime),
 			errorMessage: errorMessageTrimmed,
 			logsLink: data.logsLink,
-			ifError: data.errorMessage ? ' ' : '',
 		};
 
 		let html = loadTemplate('deploy-finish.html');
-		html = render(html, payload as unknown as Record<string, string>);
+		html = render(html, {
+			...(payload as unknown as Record<string, string>),
+			statusCss: data.status === 'success' ? 'success' : 'failure',
+		});
 
-		// Tiny conditional handling without adding a full templating engine
+		// Handle conditional sections for error display
+		// Teams message combines error with logs link if available
 		if (data.errorMessage) {
 			html = html.replace('{{#ifError}}', '').replace('{{/ifError}}', '');
+
+			// If logs link exists, show error as link; otherwise show in code block
+			if (data.logsLink) {
+				html = html.replace('{{#ifLogsLink}}', '').replace('{{/ifLogsLink}}', '');
+				// Remove the ifErrorOnly section
+				const errorOnlyStart = html.indexOf('{{#ifErrorOnly}}');
+				const errorOnlyEnd = html.indexOf('{{/ifErrorOnly}}');
+				if (errorOnlyStart !== -1 && errorOnlyEnd !== -1) {
+					html = html.slice(0, errorOnlyStart) + html.slice(errorOnlyEnd + '{{/ifErrorOnly}}'.length);
+				}
+			} else {
+				// Remove the ifLogsLink section
+				const logsLinkStart = html.indexOf('{{#ifLogsLink}}');
+				const logsLinkEnd = html.indexOf('{{/ifLogsLink}}');
+				if (logsLinkStart !== -1 && logsLinkEnd !== -1) {
+					html = html.slice(0, logsLinkStart) + html.slice(logsLinkEnd + '{{/ifLogsLink}}'.length);
+				}
+				html = html.replace('{{#ifErrorOnly}}', '').replace('{{/ifErrorOnly}}', '');
+			}
 		} else {
+			// No error message - remove entire error section
 			const start = html.indexOf('{{#ifError}}');
 			const end = html.indexOf('{{/ifError}}');
 			if (start !== -1 && end !== -1 && end > start) {
 				html = html.slice(0, start) + html.slice(end + '{{/ifError}}'.length);
 			}
-			// Remove any leftover markers
 			html = html.replace('{{#ifError}}', '').replace('{{/ifError}}', '');
 		}
 
-		const subject = `${data.environment} - deploy ${statusVerb} for ${data.repoName}`;
-
+		const subject = `Depoyment ${statusVerb} for ${data.repoName} on ${data.environment}`;
 		await this.sendMail(recipients, subject, html, {
 			type: 'finish',
 			repoName: data.repoName,
@@ -161,7 +213,13 @@ export class DeploymentEmailService {
 	): Promise<void> {
 		try {
 			await this.transporter.sendMail({
-				from: process.env.SMTP_FROM || process.env.SMTP_USER,
+				// SES SMTP credentials (SMTP_USER/SMTP_PASS) are for authentication.
+				// The email identity should be configured separately.
+				from:
+					process.env.SMTP_FROM_EMAIL ||
+					process.env.SMTP_FROM ||
+					process.env.SMTP_USER,
+				replyTo: process.env.SMTP_REPLY_TO_EMAIL || undefined,
 				to: recipients.join(', '),
 				subject,
 				html,

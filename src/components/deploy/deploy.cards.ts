@@ -12,8 +12,18 @@ function asMarkdownLink(text: string, url: string): string {
 
 /**
  * Adaptive Card builder for deployment notifications
+ *
+ * NOTE: This project currently sends Teams notifications as plain text/Markdown messages
+ * (see `TeamsMessageBuilder`) because in some Teams clients/tenants, "card-only" activities
+ * don't reliably trigger the same toast/notification behavior as normal text messages.
+ *
+ * We keep these card builders for:
+ * - easy rollback if notification behavior changes
+ * - future scenarios where richer layouts/actions are required
  */
 export class AdaptiveCardBuilder {
+	// NOTE: These methods are intentionally kept (even if currently unused) so we can
+	// quickly switch back to Adaptive Cards if needed.
 	static createStartDeploymentCard(
 		deploymentData: IStartDeploymentRequest,
 	): Attachment {
@@ -230,3 +240,9 @@ export class AdaptiveCardBuilder {
 		};
 	}
 }
+
+// Intentionally reference these methods so IDE/TS inspections don't flag them as "unused"
+// while we keep this module around for rollback.
+void AdaptiveCardBuilder.createStartDeploymentCard;
+void AdaptiveCardBuilder.createSuccessCard;
+void AdaptiveCardBuilder.createFailureCard;

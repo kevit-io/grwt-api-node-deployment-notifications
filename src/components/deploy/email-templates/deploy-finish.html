@@ -1,5 +1,5 @@
 <!DOCTYPE html>
-<html>
+<html lang="en">
 <head>
 	<meta charset="UTF-8" />
 	<meta name="viewport" content="width=device-width, initial-scale=1.0" />
@@ -104,8 +104,8 @@
 </head>
 <body>
 	<div class="container">
-		<div class="header {{status}}">
-			<div class="title">{{environment}} - deploy {{statusVerb}} for {{repoName}}</div>
+		<div class="header {{statusCss}}">
+			<div class="title">Deployment {{statusVerb}} for {{repoName}} on {{environment}}</div>
 			<div class="subtitle">Triggered by {{triggerBy}} • Started {{startTimeIst}}</div>
 		</div>
 		<div class="content">
@@ -114,21 +114,25 @@
 				<span class="value"><a href="{{repoLink}}">{{repoName}}</a></span>
 			</div>
 			<div class="row">
+				<span class="label">Environment</span>
+				<span class="value">{{environment}}</span>
+			</div>
+			<div class="row">
 				<span class="label">Status</span>
-				<span class="value"><span class="badge {{status}}">{{statusUpper}}</span></span>
+				<span class="value"><span class="badge {{statusCss}}">{{statusUpper}}</span></span>
+			</div>
+			<div class="row">
+				<span class="label">Triggered by</span>
+				<span class="value">{{triggerBy}}</span>
 			</div>
 			<div class="row">
 				<span class="label">Duration</span>
-				<span class="value">{{durationHuman}} ({{durationInSeconds}}s)</span>
-			</div>
-			<div class="row">
-				<span class="label">Start time</span>
-				<span class="value">{{startTimeIst}}</span>
+				<span class="value">{{durationInSeconds}} seconds (started at {{startTimeIst}})</span>
 			</div>
 			{{#ifError}}
 			<div class="row">
 				<span class="label">Error</span>
-				<span class="value"><div class="pre">{{errorMessage}}</div></span>
+				<div class="value">{{#ifLogsLink}}<a href="{{logsLink}}">{{errorMessage}}</a>{{/ifLogsLink}}{{#ifErrorOnly}}<div class="pre">{{errorMessage}}</div>{{/ifErrorOnly}}</div>
 			</div>
 			{{/ifError}}
 		</div>

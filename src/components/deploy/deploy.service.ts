@@ -7,6 +7,7 @@ import {
 import { MicrosoftAppCredentials } from 'botframework-connector';
 import { Request, Response } from 'express';
 import { AdaptiveCardBuilder } from './deploy.cards';
+import { TeamsMessageBuilder } from './deploy.messages';
 import {
 	IStartDeploymentRequest,
 	IFinishDeploymentRequest,
@@ -140,12 +141,12 @@ export class DeployNotificationService {
 				conversationRef,
 				async (context: TurnContext) => {
 					try {
-						const card =
-							AdaptiveCardBuilder.createStartDeploymentCard(deploymentData);
+						const text =
+							TeamsMessageBuilder.createStartDeploymentMessage(deploymentData);
 
 						const activity: Partial<Activity> = {
 							type: 'message',
-							attachments: [card],
+							text,
 						};
 
 						const response = await context.sendActivity(activity);
@@ -206,14 +207,22 @@ export class DeployNotificationService {
 				threadConversationRef,
 				async (context: TurnContext) => {
 					try {
-						const card =
+						// NOTE: We intentionally *don't* use Adaptive Cards for deployment notifications right now.
+						// In some Teams clients/tenants, card-only activities don't reliably trigger the same
+						// toast/notification behavior as plain text messages. Markdown text provides a more
+						// consistent notification experience.
+						//
+						// (We keep the AdaptiveCardBuilder code around for future use / easy rollback.)
+						const text =
 							resultData.status === 'success'
-								? AdaptiveCardBuilder.createSuccessCard(resultData)
-								: AdaptiveCardBuilder.createFailureCard(resultData);
+								? TeamsMessageBuilder.createSuccessDeploymentMessage(resultData)
+								: TeamsMessageBuilder.createFailureDeploymentMessage(
+										resultData,
+									);
 
 						const activity: Partial<Activity> = {
 							type: 'message',
-							attachments: [card],
+							text,
 						};
 						await context.sendActivity(activity);
 

@@ -67,7 +67,6 @@ export interface IDeployFinishEmailPayload {
 	startTimeIst: string;
 	errorMessage: string;
 	logsLink?: string;
-	ifError: string;
 }
 
 /**

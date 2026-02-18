@@ -1,5 +1,6 @@
 <!DOCTYPE html>
-<html>
+<html lang="en">
+
 <head>
 	<meta charset="UTF-8" />
 	<meta name="viewport" content="width=device-width, initial-scale=1.0" />
@@ -95,10 +96,11 @@
 		}
 	</style>
 </head>
+
 <body>
 	<div class="container">
 		<div class="header">
-			<div class="title">{{environment}} - deploy started for {{repoName}}</div>
+			<div class="title">Deployment started for {{repoName}} on {{environment}}</div>
 			<div class="subtitle">Triggered by {{triggerBy}} • {{startTimeIst}}</div>
 		</div>
 		<div class="content">
@@ -108,12 +110,16 @@
 					<span class="value"><a href="{{repoLink}}">{{repoName}}</a></span>
 				</div>
 				<div class="row">
-					<span class="label">Commit</span>
-					<span class="value"><a href="{{commitShaLink}}"><code>{{commitShaName}}</code></a></span>
+					<span class="label">Trigger</span>
+					<span class="value"><a href="{{triggerLink}}">{{triggerTitle}}</a></span>
 				</div>
 				<div class="row">
 					<span class="label">Environment</span>
 					<span class="value">{{environment}}</span>
+				</div>
+				<div class="row">
+					<span class="label">Triggered by</span>
+					<span class="value">{{triggerBy}}</span>
 				</div>
 				<div class="row">
 					<span class="label">Start time</span>
@@ -122,10 +128,11 @@
 			</div>
 
 			<div class="actions">
-				<a class="btn" href="{{actionLink}}">Open deployment</a>
+				<a class="btn" href="{{actionLink}}">Go to Action Runner</a>
 			</div>
 		</div>
 		<div class="footer">Deployment Notifications Bot</div>
 	</div>
 </body>
+
 </html>
