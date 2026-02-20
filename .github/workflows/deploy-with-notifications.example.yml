@@ -1,0 +1,234 @@
+name: Deploy with Notifications
+
+on:
+  push:
+    branches: [main, develop]
+  workflow_dispatch:
+
+# Required for GitHub OIDC token generation
+permissions:
+  id-token: write
+  contents: read
+
+env:
+  # Update this to your deployment bot API URL
+  DEPLOY_BOT_API: https://your-deployment-bot-api.com
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+
+    # Optional: Use GitHub Environments for additional security
+    # environment: production
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      # ========================================
+      # STEP 1: Get GitHub OIDC Token
+      # ========================================
+      - name: Get GitHub OIDC Token
+        id: get-oidc-token
+        run: |
+          echo "🔐 Requesting OIDC token from GitHub..."
+          
+          # Request OIDC token with your API as the audience
+          OIDC_TOKEN=$(curl -s -H "Authorization: bearer $ACTIONS_ID_TOKEN_REQUEST_TOKEN" \
+            "$ACTIONS_ID_TOKEN_REQUEST_URL&audience=${{ env.DEPLOY_BOT_API }}" | jq -r '.value')
+          
+          # Validate token was received
+          if [ -z "$OIDC_TOKEN" ] || [ "$OIDC_TOKEN" = "null" ]; then
+            echo "❌ Failed to get OIDC token"
+            exit 1
+          fi
+          
+          echo "✅ OIDC token received"
+          
+          # Mask token in logs for security
+          echo "::add-mask::$OIDC_TOKEN"
+          
+          # Make token available to subsequent steps
+          echo "token=$OIDC_TOKEN" >> $GITHUB_OUTPUT
+
+      # ========================================
+      # STEP 2: Notify Deployment Start
+      # ========================================
+      - name: Notify Deployment Start
+        id: notify-start
+        env:
+          OIDC_TOKEN: ${{ steps.get-oidc-token.outputs.token }}
+        run: |
+          echo "📢 Sending deployment start notification..."
+          
+          # Determine environment based on branch
+          ENVIRONMENT="development"
+          if [ "${{ github.ref }}" = "refs/heads/main" ]; then
+            ENVIRONMENT="production"
+          elif [ "${{ github.ref }}" = "refs/heads/develop" ]; then
+            ENVIRONMENT="staging"
+          fi
+          
+          # Send start notification
+          RESPONSE=$(curl -s -w "\n%{http_code}" -X POST "${{ env.DEPLOY_BOT_API }}/deploy/start" \
+            -H "Authorization: Bearer $OIDC_TOKEN" \
+            -H "Content-Type: application/json" \
+            -d '{
+              "teamId": "${{ secrets.TEAMS_TEAM_ID }}",
+              "channelId": "${{ secrets.TEAMS_CHANNEL_ID }}",
+              "repoName": "${{ github.repository }}",
+              "repoLink": "${{ github.server_url }}/${{ github.repository }}",
+              "triggerTitle": "'"$(echo "${{ github.event.head_commit.message }}" | head -n 1)"'",
+              "triggerLink": "${{ github.server_url }}/${{ github.repository }}/commit/${{ github.sha }}",
+              "actionLink": "${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}",
+              "environment": "'"$ENVIRONMENT"'",
+              "triggerBy": "${{ github.actor }}",
+              "startTime": "${{ github.event.head_commit.timestamp }}"
+            }')
+          
+          # Extract HTTP status code (last line)
+          HTTP_CODE=$(echo "$RESPONSE" | tail -n 1)
+          # Extract response body (all except last line)
+          RESPONSE_BODY=$(echo "$RESPONSE" | head -n -1)
+          
+          echo "Response: $RESPONSE_BODY"
+          echo "HTTP Status: $HTTP_CODE"
+          
+          # Check if request was successful
+          if [ "$HTTP_CODE" -ne 200 ]; then
+            echo "❌ Failed to send start notification (HTTP $HTTP_CODE)"
+            echo "$RESPONSE_BODY"
+            exit 1
+          fi
+          
+          # Extract thread ID for later use
+          THREAD_ID=$(echo "$RESPONSE_BODY" | jq -r '.data.threadId')
+          
+          if [ -z "$THREAD_ID" ] || [ "$THREAD_ID" = "null" ]; then
+            echo "❌ No thread ID received"
+            exit 1
+          fi
+          
+          echo "✅ Deployment start notification sent"
+          echo "Thread ID: $THREAD_ID"
+          
+          # Save for later steps
+          echo "thread_id=$THREAD_ID" >> $GITHUB_OUTPUT
+          echo "environment=$ENVIRONMENT" >> $GITHUB_OUTPUT
+          echo "DEPLOYMENT_START_TIME=$(date +%s)" >> $GITHUB_ENV
+
+      # ========================================
+      # STEP 3: Your Deployment Steps
+      # ========================================
+      - name: Build Application
+        run: |
+          echo "🔨 Building application..."
+          # Add your build commands here
+          # npm install
+          # npm run build
+          sleep 2
+
+      - name: Run Tests
+        run: |
+          echo "🧪 Running tests..."
+          # Add your test commands here
+          # npm test
+          sleep 2
+
+      - name: Deploy to Server
+        run: |
+          echo "🚀 Deploying to ${{ steps.notify-start.outputs.environment }}..."
+          # Add your deployment commands here
+          # kubectl apply -f deployment.yaml
+          # aws s3 sync ./build s3://my-bucket
+          sleep 2
+
+      # ========================================
+      # STEP 4: Notify Deployment Success
+      # ========================================
+      - name: Notify Deployment Success
+        if: success()
+        env:
+          OIDC_TOKEN: ${{ steps.get-oidc-token.outputs.token }}
+          THREAD_ID: ${{ steps.notify-start.outputs.thread_id }}
+          ENVIRONMENT: ${{ steps.notify-start.outputs.environment }}
+        run: |
+          echo "✅ Sending deployment success notification..."
+          
+          # Calculate deployment duration
+          DEPLOYMENT_END_TIME=$(date +%s)
+          DURATION=$((DEPLOYMENT_END_TIME - DEPLOYMENT_START_TIME))
+          
+          # Send success notification
+          RESPONSE=$(curl -s -w "\n%{http_code}" -X POST "${{ env.DEPLOY_BOT_API }}/deploy/result" \
+            -H "Authorization: Bearer $OIDC_TOKEN" \
+            -H "Content-Type: application/json" \
+            -d '{
+              "teamId": "${{ secrets.TEAMS_TEAM_ID }}",
+              "channelId": "${{ secrets.TEAMS_CHANNEL_ID }}",
+              "threadId": "'"$THREAD_ID"'",
+              "repoName": "${{ github.repository }}",
+              "repoLink": "${{ github.server_url }}/${{ github.repository }}",
+              "environment": "'"$ENVIRONMENT"'",
+              "status": "success",
+              "triggerBy": "${{ github.actor }}",
+              "startTime": "${{ github.event.head_commit.timestamp }}",
+              "durationInSeconds": '"$DURATION"',
+              "logsLink": "${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}"
+            }')
+          
+          HTTP_CODE=$(echo "$RESPONSE" | tail -n 1)
+          RESPONSE_BODY=$(echo "$RESPONSE" | head -n -1)
+          
+          if [ "$HTTP_CODE" -ne 200 ]; then
+            echo "⚠️ Failed to send success notification (HTTP $HTTP_CODE)"
+            echo "$RESPONSE_BODY"
+            # Don't fail the workflow if notification fails
+          else
+            echo "✅ Deployment success notification sent"
+          fi
+
+      # ========================================
+      # STEP 5: Notify Deployment Failure
+      # ========================================
+      - name: Notify Deployment Failure
+        if: failure()
+        env:
+          OIDC_TOKEN: ${{ steps.get-oidc-token.outputs.token }}
+          THREAD_ID: ${{ steps.notify-start.outputs.thread_id }}
+          ENVIRONMENT: ${{ steps.notify-start.outputs.environment }}
+        run: |
+          echo "❌ Sending deployment failure notification..."
+          
+          # Calculate deployment duration
+          DEPLOYMENT_END_TIME=$(date +%s)
+          DURATION=$((DEPLOYMENT_END_TIME - DEPLOYMENT_START_TIME))
+          
+          # Send failure notification
+          RESPONSE=$(curl -s -w "\n%{http_code}" -X POST "${{ env.DEPLOY_BOT_API }}/deploy/result" \
+            -H "Authorization: Bearer $OIDC_TOKEN" \
+            -H "Content-Type: application/json" \
+            -d '{
+              "teamId": "${{ secrets.TEAMS_TEAM_ID }}",
+              "channelId": "${{ secrets.TEAMS_CHANNEL_ID }}",
+              "threadId": "'"$THREAD_ID"'",
+              "repoName": "${{ github.repository }}",
+              "repoLink": "${{ github.server_url }}/${{ github.repository }}",
+              "environment": "'"$ENVIRONMENT"'",
+              "status": "fail",
+              "triggerBy": "${{ github.actor }}",
+              "startTime": "${{ github.event.head_commit.timestamp }}",
+              "durationInSeconds": '"$DURATION"',
+              "errorMessage": "Deployment failed - check workflow logs for details",
+              "logsLink": "${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}"
+            }')
+          
+          HTTP_CODE=$(echo "$RESPONSE" | tail -n 1)
+          RESPONSE_BODY=$(echo "$RESPONSE" | head -n -1)
+          
+          if [ "$HTTP_CODE" -ne 200 ]; then
+            echo "⚠️ Failed to send failure notification (HTTP $HTTP_CODE)"
+            echo "$RESPONSE_BODY"
+          else
+            echo "✅ Deployment failure notification sent"
+          fi

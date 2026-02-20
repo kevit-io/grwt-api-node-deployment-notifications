@@ -1,0 +1,251 @@
+name: Reusable Deployment Notification Workflow
+
+on:
+  workflow_call:
+    inputs:
+      # Required: Deployment details
+      repo_name:
+        description: 'Project repository name (e.g., your-org/frontend)'
+        required: true
+        type: string
+      repo_link:
+        description: 'Project repository URL'
+        required: true
+        type: string
+      environment:
+        description: 'Deployment environment (dev/staging/production)'
+        required: true
+        type: string
+      trigger_by:
+        description: 'Who triggered the deployment'
+        required: true
+        type: string
+      trigger_title:
+        description: 'Trigger title (e.g., commit message)'
+        required: true
+        type: string
+      trigger_link:
+        description: 'Link to trigger (e.g., commit URL)'
+        required: true
+        type: string
+      action_link:
+        description: 'Link to GitHub Actions run'
+        required: true
+        type: string
+      start_time:
+        description: 'Deployment start time (ISO-8601)'
+        required: true
+        type: string
+
+      # Optional: For finish notification
+      notification_type:
+        description: 'Notification type: start or finish'
+        required: true
+        type: string
+        default: 'start'
+      thread_id:
+        description: 'Thread ID from start notification - required for finish notification'
+        required: false
+        type: string
+        default: ''
+      duration_seconds:
+        description: 'Deployment duration in seconds - required for finish notification'
+        required: false
+        type: number
+        default: 0
+      status:
+        description: 'Deployment status (success/fail) - required for finish notification'
+        required: false
+        type: string
+        default: 'success'
+      error_message:
+        description: 'Error message if deployment failed'
+        required: false
+        type: string
+        default: ''
+      logs_link:
+        description: 'Link to deployment logs'
+        required: false
+        type: string
+        default: ''
+
+    secrets:
+      TEAMS_TEAM_ID:
+        description: 'Microsoft Teams Team ID'
+        required: true
+      TEAMS_CHANNEL_ID:
+        description: 'Microsoft Teams Channel ID'
+        required: true
+      API_URL:
+        description: 'Deployment notification API URL'
+        required: true
+
+    outputs:
+      thread_id:
+        description: 'Thread ID from Teams notification (for start notifications)'
+        value: ${{ jobs.notify.outputs.thread_id }}
+
+# IMPORTANT: This workflow generates OIDC token
+# Token will have identity of "devops-notifications" repo
+permissions:
+  id-token: write  # Required for OIDC token generation
+  contents: read
+
+jobs:
+  notify:
+    runs-on: ubuntu-latest
+    outputs:
+      thread_id: ${{ steps.notify-start.outputs.thread_id }}
+
+    steps:
+      - name: Validate Inputs
+        run: |
+          echo "📋 Validating inputs..."
+          echo "Repository: ${{ inputs.repo_name }}"
+          echo "Environment: ${{ inputs.environment }}"
+          echo "Notification Type: ${{ inputs.notification_type }}"
+          
+          if [ "${{ inputs.notification_type }}" != "start" ] && [ "${{ inputs.notification_type }}" != "finish" ]; then
+            echo "❌ Error: notification_type must be 'start' or 'finish'"
+            exit 1
+          fi
+          
+          if [ "${{ inputs.notification_type }}" = "finish" ] && [ -z "${{ inputs.thread_id }}" ]; then
+            echo "❌ Error: thread_id is required for finish notifications"
+            exit 1
+          fi
+          
+          echo "✅ All validations passed"
+
+      # ============================================================
+      # STEP 1: Generate OIDC Token
+      # This happens in the DevOps repo (not project repos!)
+      # Token will contain identity of this reusable workflow
+      # ============================================================
+      - name: Get GitHub OIDC Token
+        id: get-token
+        run: |
+          echo "🔐 Requesting OIDC token from GitHub..."
+          
+          # Request OIDC token with API URL as audience
+          OIDC_TOKEN=$(curl -s -H "Authorization: bearer $ACTIONS_ID_TOKEN_REQUEST_TOKEN" \
+            "$ACTIONS_ID_TOKEN_REQUEST_URL&audience=${{ secrets.API_URL }}" | jq -r '.value')
+          
+          # Validate token was received
+          if [ -z "$OIDC_TOKEN" ] || [ "$OIDC_TOKEN" = "null" ]; then
+            echo "❌ Failed to get OIDC token"
+            exit 1
+          fi
+          
+          echo "✅ OIDC token received from GitHub"
+          
+          # Mask token in logs for security
+          echo "::add-mask::$OIDC_TOKEN"
+          
+          # Make token available to subsequent steps
+          echo "token=$OIDC_TOKEN" >> $GITHUB_OUTPUT
+
+      # ============================================================
+      # STEP 2: Send Start Notification
+      # ============================================================
+      - name: Send Deployment Start Notification
+        id: notify-start
+        if: inputs.notification_type == 'start'
+        env:
+          API_URL: ${{ secrets.API_URL }}
+          OIDC_TOKEN: ${{ steps.get-token.outputs.token }}
+        run: |
+          echo "📢 Sending deployment start notification..."
+          
+          # Call your Node.js API with OIDC token
+          RESPONSE=$(curl -s -w "\n%{http_code}" -X POST "$API_URL/deploy/start" \
+            -H "Authorization: Bearer $OIDC_TOKEN" \
+            -H "Content-Type: application/json" \
+            -d '{
+              "teamId": "${{ secrets.TEAMS_TEAM_ID }}",
+              "channelId": "${{ secrets.TEAMS_CHANNEL_ID }}",
+              "repoName": "${{ inputs.repo_name }}",
+              "repoLink": "${{ inputs.repo_link }}",
+              "triggerTitle": "'"$(echo "${{ inputs.trigger_title }}" | sed 's/"/\\"/g' | head -c 200)"'",
+              "triggerLink": "${{ inputs.trigger_link }}",
+              "actionLink": "${{ inputs.action_link }}",
+              "environment": "${{ inputs.environment }}",
+              "triggerBy": "${{ inputs.trigger_by }}",
+              "startTime": "${{ inputs.start_time }}"
+            }')
+          
+          # Extract HTTP status code
+          HTTP_CODE=$(echo "$RESPONSE" | tail -n 1)
+          RESPONSE_BODY=$(echo "$RESPONSE" | head -n -1)
+          
+          echo "Response: $RESPONSE_BODY"
+          echo "HTTP Status: $HTTP_CODE"
+          
+          # Check if request was successful
+          if [ "$HTTP_CODE" -ne 200 ]; then
+            echo "❌ Failed to send start notification (HTTP $HTTP_CODE)"
+            echo "$RESPONSE_BODY"
+            exit 1
+          fi
+          
+          # Extract thread ID for later use
+          THREAD_ID=$(echo "$RESPONSE_BODY" | jq -r '.data.threadId')
+          
+          if [ -z "$THREAD_ID" ] || [ "$THREAD_ID" = "null" ]; then
+            echo "❌ No thread ID received from API"
+            exit 1
+          fi
+          
+          echo "✅ Deployment start notification sent successfully"
+          echo "Thread ID: $THREAD_ID"
+          
+          # Output thread_id for use in calling workflow
+          echo "thread_id=$THREAD_ID" >> $GITHUB_OUTPUT
+
+      # ============================================================
+      # STEP 3: Send Finish Notification
+      # ============================================================
+      - name: Send Deployment Finish Notification
+        id: notify-finish
+        if: inputs.notification_type == 'finish'
+        env:
+          API_URL: ${{ secrets.API_URL }}
+          OIDC_TOKEN: ${{ steps.get-token.outputs.token }}
+        run: |
+          echo "📢 Sending deployment ${{ inputs.status }} notification..."
+          
+          # Call your Node.js API with OIDC token
+          RESPONSE=$(curl -s -w "\n%{http_code}" -X POST "$API_URL/deploy/result" \
+            -H "Authorization: Bearer $OIDC_TOKEN" \
+            -H "Content-Type: application/json" \
+            -d '{
+              "teamId": "${{ secrets.TEAMS_TEAM_ID }}",
+              "channelId": "${{ secrets.TEAMS_CHANNEL_ID }}",
+              "threadId": "${{ inputs.thread_id }}",
+              "repoName": "${{ inputs.repo_name }}",
+              "repoLink": "${{ inputs.repo_link }}",
+              "environment": "${{ inputs.environment }}",
+              "status": "${{ inputs.status }}",
+              "triggerBy": "${{ inputs.trigger_by }}",
+              "startTime": "${{ inputs.start_time }}",
+              "durationInSeconds": ${{ inputs.duration_seconds }},
+              "errorMessage": "'"$(echo "${{ inputs.error_message }}" | sed 's/"/\\"/g' | head -c 300)"'",
+              "logsLink": "${{ inputs.logs_link }}"
+            }')
+          
+          # Extract HTTP status code
+          HTTP_CODE=$(echo "$RESPONSE" | tail -n 1)
+          RESPONSE_BODY=$(echo "$RESPONSE" | head -n -1)
+          
+          echo "Response: $RESPONSE_BODY"
+          echo "HTTP Status: $HTTP_CODE"
+          
+          # Check if request was successful
+          if [ "$HTTP_CODE" -ne 200 ]; then
+            echo "❌ Failed to send finish notification (HTTP $HTTP_CODE)"
+            echo "$RESPONSE_BODY"
+            # Don't fail the workflow if notification fails
+            exit 0
+          fi
+          
+          echo "✅ Deployment ${{ inputs.status }} notification sent successfully"

@@ -15,5 +15,10 @@ const Config = {
 		conversationId: process.env.TEAMS_CONVERSATION_ID || '',
 		tenantId: process.env.TEAMS_TENANT_ID || '',
 	},
+	auth: {
+		// GitHub Actions OIDC configuration
+		githubOidcAudience: process.env.GITHUB_OIDC_AUDIENCE || '',
+		allowedGithubRepos: process.env.ALLOWED_GITHUB_REPOS || '',
+	},
 };
 export default Config;
