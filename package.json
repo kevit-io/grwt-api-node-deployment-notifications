@@ -21,7 +21,7 @@
   "dependencies": {
     "@types/jsonwebtoken": "^9.0.10",
     "adaptivecards": "^3.0.5",
-    "axios": "^1.13.4",
+    "axios": "^1.13.5",
     "body-parser": "^1.20.2",
     "botbuilder": "^4.23.3",
     "cors": "^2.8.5",
