@@ -14,9 +14,9 @@ jobs:
       - name: Set up SSH
         run: |
           mkdir -p /home/runner/.ssh  # Create SSH directory
-          echo "${{ secrets.SSH_PRIVATE_KEY }}" > /home/runner/.ssh/id_rsa  # Save the private key
+          echo "${{ secrets.PROD_SSH_PRIVATE_KEY }}" > /home/runner/.ssh/id_rsa  # Save the private key
           chmod 600 /home/runner/.ssh/id_rsa  # Set proper permissions
-          ssh-keyscan -p ${{ secrets.SSH_PORT }} -H ${{ secrets.SSH_HOST }} >> /home/runner/.ssh/known_hosts  # Add remote server to known hosts
+          ssh-keyscan -p ${{ secrets.PROD_SSH_PORT }} -H ${{ secrets.PROD_SSH_HOST }} >> /home/runner/.ssh/known_hosts  # Add remote server to known hosts
 
       # Step 2: Create .env file dynamically using secrets stored in GitHub
       - name: Create .env file dynamically
@@ -39,9 +39,9 @@ jobs:
       # Step 3: Copy the .env file to the remote server
       - name: Copy .env file to remote server
         env:
-          SSH_PORT: ${{ secrets.SSH_PORT }}
-          SSH_USER: ${{ secrets.SSH_USER }}
-          SSH_HOST: ${{ secrets.SSH_HOST }}
+          SSH_PORT: ${{ secrets.PROD_SSH_PORT }}
+          SSH_USER: ${{ secrets.PROD_SSH_USER }}
+          SSH_HOST: ${{ secrets.PROD_SSH_HOST }}
         run: |
           echo "Copying .env file to remote server using scp..."
           
@@ -57,11 +57,11 @@ jobs:
       - name: Deploy Application
         run: |
           echo "Logging into the server..."
-          ssh -p ${{ secrets.SSH_PORT }} -i /home/runner/.ssh/id_rsa ${{ secrets.SSH_USER }}@${{ secrets.SSH_HOST }} << 'EOF'
+          ssh -p ${{ secrets.PROD_SSH_PORT }} -i /home/runner/.ssh/id_rsa ${{ secrets.PROD_SSH_USER }}@${{ secrets.PROD_SSH_HOST }} << 'EOF'
             echo "Logged into the server"
             
             # Navigate to the project directory
-            cd /home/${{ secrets.SSH_USER }}/projects/grwt-api-node-deployment-notifications-prod/
+            cd /home/${{ secrets.PROD_SSH_USER }}/projects/grwt-api-node-deployment-notifications-prod/
             
             # Reset any local changes and pull the latest code from the repository
             git checkout main  # Ensure we are on the correct branch
