@@ -157,6 +157,9 @@ jobs:
         run: |
           echo "📢 Sending deployment start notification..."
           
+          # Sanitize trigger title - remove newlines and escape quotes
+          TRIGGER_TITLE=$(echo "${{ inputs.trigger_title }}" | tr '\n' ' ' | sed 's/"/\\"/g' | head -c 200)
+          
           # Call your Node.js API with OIDC token
           RESPONSE=$(curl -s -w "\n%{http_code}" -X POST "$API_URL/deploy/start" \
             -H "Authorization: Bearer $OIDC_TOKEN" \
@@ -166,7 +169,7 @@ jobs:
               "channelId": "${{ secrets.TEAMS_CHANNEL_ID }}",
               "repoName": "${{ inputs.repo_name }}",
               "repoLink": "${{ inputs.repo_link }}",
-              "triggerTitle": "'"$(echo "${{ inputs.trigger_title }}" | sed 's/"/\\"/g' | head -c 200)"'",
+              "triggerTitle": "'"$TRIGGER_TITLE"'",
               "triggerLink": "${{ inputs.trigger_link }}",
               "actionLink": "${{ inputs.action_link }}",
               "environment": "${{ inputs.environment }}",
@@ -214,6 +217,9 @@ jobs:
         run: |
           echo "📢 Sending deployment ${{ inputs.status }} notification..."
           
+          # Sanitize error message - remove newlines and escape quotes
+          ERROR_MESSAGE=$(echo "${{ inputs.error_message }}" | tr '\n' ' ' | sed 's/"/\\"/g' | head -c 300)
+          
           # Call your Node.js API with OIDC token
           RESPONSE=$(curl -s -w "\n%{http_code}" -X POST "$API_URL/deploy/result" \
             -H "Authorization: Bearer $OIDC_TOKEN" \
@@ -229,7 +235,7 @@ jobs:
               "triggerBy": "${{ inputs.trigger_by }}",
               "startTime": "${{ inputs.start_time }}",
               "durationInSeconds": ${{ inputs.duration_seconds }},
-              "errorMessage": "'"$(echo "${{ inputs.error_message }}" | sed 's/"/\\"/g' | head -c 300)"'",
+              "errorMessage": "'"$ERROR_MESSAGE"'",
               "logsLink": "${{ inputs.logs_link }}"
             }')
           
