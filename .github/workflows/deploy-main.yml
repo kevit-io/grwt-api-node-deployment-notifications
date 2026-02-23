@@ -3,7 +3,7 @@ name: Deploy Main Branch onto standlone server # Name of the workflow
 on:
   push:
     branches:
-      - branch_name  # Trigger the workflow when code is pushed to the specified branch
+      - main  # Trigger the workflow when code is pushed to the specified branch
 
 jobs:  
   job-name:
@@ -25,13 +25,13 @@ jobs:
         run: |
           echo "Creating .env file dynamically..."
           
-          # Extract only relevant secrets prefixed with 'DEV_' and exclude SSH, STAGE, and GitHub token
+          # Extract only relevant secrets prefixed with 'PROD_' and exclude SSH, STAGE, DEV, and GitHub token
           echo "$ALLMYSECRETS" | jq -r '
             to_entries[]
-            | select(.key | startswith("DEV_"))
+            | select(.key | startswith("PROD_"))
             | select(.key | startswith("SSH_") | not)
             | select(.key | ascii_downcase != "github_token")
-            | "\( .key | sub("^DEV_"; "") )=\(.value)"
+            | "\( .key | sub("^PROD_"; "") )=\(.value)"
           ' >> .env
           
           echo ".env file created successfully."
@@ -46,10 +46,10 @@ jobs:
           echo "Copying .env file to remote server using scp..."
           
           # Remove old .env file if it exists
-          ssh -p $SSH_PORT -i /home/runner/.ssh/id_rsa $SSH_USER@$SSH_HOST "rm -f /home/$SSH_USER/path/to/project/.env"
+          ssh -p $SSH_PORT -i /home/runner/.ssh/id_rsa $SSH_USER@$SSH_HOST "rm -f /home/$SSH_USER/projects/grwt-api-node-deployment-notifications-prod/.env"
           
           # Securely copy the new .env file to the server
-          scp -P $SSH_PORT -i /home/runner/.ssh/id_rsa .env $SSH_USER@$SSH_HOST:/home/$SSH_USER/path/to/project/.env
+          scp -P $SSH_PORT -i /home/runner/.ssh/id_rsa .env $SSH_USER@$SSH_HOST:/home/$SSH_USER/projects/grwt-api-node-deployment-notifications-prod/.env
           
           echo ".env file copied successfully."
 
@@ -61,23 +61,23 @@ jobs:
             echo "Logged into the server"
             
             # Navigate to the project directory
-            cd /home/${{ secrets.SSH_USER }}/path/to/project
+            cd /home/${{ secrets.SSH_USER }}/projects/grwt-api-node-deployment-notifications-prod/
             
             # Reset any local changes and pull the latest code from the repository
-            git checkout branch_name  # Ensure we are on the correct branch
+            git checkout main  # Ensure we are on the correct branch
             git fetch origin  # Fetch latest changes from remote repository
-            git reset --hard origin/branch_name  # Reset the branch to match remote
+            git reset --hard origin/main  # Reset the branch to match remote
             
             # Install dependencies
             npm i  # Install required packages
             
-            # Remove old build or lib or dist directory and generate a fresh one
-            rm -r dist/
+            # Remove old build directory and generate a fresh one
+            rm -rf lib/
             npm run build
             
             # Restart the application using PM2
             echo "Restarting PM2 process..."
-            pm2 restart ecosystem.main.config.js || pm2 start ecosystem.main.config.js  # Restart or start the app
+            pm2 restart ecosystem.config.js --only grwt-api-node-deployment-notifications-prod || pm2 start ecosystem.config.js --only grwt-api-node-deployment-notifications-prod
             pm2 save  # Save PM2 process state
           EOF
           
