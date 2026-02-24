@@ -25,9 +25,10 @@ jobs:
           echo "$ALLMYSECRETS" | jq -r '
             to_entries[]
             | select(.key | startswith("PROD_"))
-            | select(.key | startswith("PROD_SSH_") | not)
-            | select(.key | startswith("PROD_TEAMS_") | not)
-            | select(.key | startswith("PROD_DEPLOY_BOT_") | not)
+            | select(.key == "PROD_SSH_HOST" or .key == "PROD_SSH_PORT" or .key == "PROD_SSH_USER" or .key == "PROD_SSH_PRIVATE_KEY" | not)
+            | select(.key == "PROD_TEAMS_TEAM_ID" or .key == "PROD_TEAMS_CHANNEL_ID" | not)
+            | select(.key == "PROD_DEPLOY_BOT_API_URL" | not)
+            | select(.key == "PROD_PM_EMAIL" | not)
             | select(.key | ascii_downcase != "github_token")
             | "\( .key | sub("^PROD_"; "") )=\(.value)"
           ' >> .env
