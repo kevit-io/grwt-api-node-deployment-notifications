@@ -68,6 +68,11 @@ on:
         required: false
         type: string
         default: ''
+      email_ids:
+        description: 'Comma-separated email addresses for notifications'
+        required: false
+        type: string
+        default: ''
 
     secrets:
       TEAMS_TEAM_ID:
