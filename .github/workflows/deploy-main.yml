@@ -1,45 +1,15 @@
-name: Deploy Main Branch with Notifications
+name: Deploy Main Branch
 
 on:
   push:
     branches:
       - main
 
-# Required for GitHub OIDC token generation
-permissions:
-  id-token: write
-  contents: read
-
 jobs:
-  # ========================================
-  # JOB 1: Notify Deployment Start
-  # ========================================
-  notify-start:
-    uses: ./.github/workflows/reusable-notify-deployment.yml
-    with:
-      repo_name: ${{ github.repository }}
-      repo_link: ${{ github.server_url }}/${{ github.repository }}
-      environment: production
-      trigger_by: ${{ github.actor }}
-      trigger_title: ${{ github.event.head_commit.message }}
-      trigger_link: ${{ github.server_url }}/${{ github.repository }}/commit/${{ github.sha }}
-      action_link: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
-      start_time: ${{ github.event.head_commit.timestamp }}
-      notification_type: start
-    secrets:
-      TEAMS_TEAM_ID: ${{ secrets.PROD_TEAMS_TEAM_ID }}
-      TEAMS_CHANNEL_ID: ${{ secrets.PROD_TEAMS_CHANNEL_ID }}
-      API_URL: ${{ secrets.PROD_DEPLOY_BOT_API_URL }}
-
-  # ========================================
-  # JOB 2: Deploy Application
-  # ========================================
   deploy:
-    needs: notify-start
     runs-on: ubuntu-latest
 
     steps:
-      # Step 1: Set up SSH with the private key stored in GitHub Secrets
       - name: Set up SSH
         run: |
           mkdir -p /home/runner/.ssh
@@ -47,14 +17,11 @@ jobs:
           chmod 600 /home/runner/.ssh/id_rsa
           ssh-keyscan -p ${{ secrets.PROD_SSH_PORT }} -H ${{ secrets.PROD_SSH_HOST }} >> /home/runner/.ssh/known_hosts
 
-      # Step 2: Create .env file dynamically using secrets stored in GitHub
       - name: Create .env file dynamically
         env:
           ALLMYSECRETS: ${{ toJSON(secrets) }}
         run: |
           echo "Creating .env file dynamically..."
-          
-          # Extract only relevant secrets prefixed with 'PROD_' and exclude SSH, STAGE, DEV, and GitHub token
           echo "$ALLMYSECRETS" | jq -r '
             to_entries[]
             | select(.key | startswith("PROD_"))
@@ -64,10 +31,8 @@ jobs:
             | select(.key | ascii_downcase != "github_token")
             | "\( .key | sub("^PROD_"; "") )=\(.value)"
           ' >> .env
-          
           echo ".env file created successfully."
 
-      # Step 3: Copy the .env file to the remote server
       - name: Copy .env file to remote server
         env:
           SSH_PORT: ${{ secrets.PROD_SSH_PORT }}
@@ -75,97 +40,24 @@ jobs:
           SSH_HOST: ${{ secrets.PROD_SSH_HOST }}
         run: |
           echo "Copying .env file to remote server using scp..."
-          
-          # Remove old .env file if it exists
           ssh -p $SSH_PORT -i /home/runner/.ssh/id_rsa $SSH_USER@$SSH_HOST "rm -f /home/$SSH_USER/projects/grwt-api-node-deployment-notifications-prod/.env"
-          
-          # Securely copy the new .env file to the server
           scp -P $SSH_PORT -i /home/runner/.ssh/id_rsa .env $SSH_USER@$SSH_HOST:/home/$SSH_USER/projects/grwt-api-node-deployment-notifications-prod/.env
-          
           echo ".env file copied successfully."
 
-      # Step 4: SSH into the server and deploy the latest code
       - name: Deploy Application
-        id: deploy
         run: |
           echo "Logging into the server..."
-          
-          # Save start time for duration calculation
-          echo "DEPLOYMENT_START_TIME=$(date +%s)" >> $GITHUB_ENV
-          
           ssh -p ${{ secrets.PROD_SSH_PORT }} -i /home/runner/.ssh/id_rsa ${{ secrets.PROD_SSH_USER }}@${{ secrets.PROD_SSH_HOST }} << 'EOF'
             echo "Logged into the server"
-            
-            # Navigate to the project directory
             cd /home/${{ secrets.PROD_SSH_USER }}/projects/grwt-api-node-deployment-notifications-prod/
-            
-            # Reset any local changes and pull the latest code from the repository
             git checkout main
             git fetch origin
             git reset --hard origin/main
-            
-            # Install dependencies
             npm i
-            
-            # Remove old build directory and generate a fresh one
             rm -rf lib/
             npm run build
-            
-            # Restart the application using PM2
             echo "Restarting PM2 process..."
             pm2 restart ecosystem.config.js --only grwt-api-node-deployment-notifications-prod || pm2 start ecosystem.config.js --only grwt-api-node-deployment-notifications-prod
             pm2 save
           EOF
-          
           echo "Deployment completed successfully."
-
-  # ========================================
-  # JOB 3: Notify Deployment Success
-  # ========================================
-  notify-success:
-    needs: [notify-start, deploy]
-    if: success()
-    uses: ./.github/workflows/reusable-notify-deployment.yml
-    with:
-      repo_name: ${{ github.repository }}
-      repo_link: ${{ github.server_url }}/${{ github.repository }}
-      environment: production
-      trigger_by: ${{ github.actor }}
-      trigger_title: ${{ github.event.head_commit.message }}
-      trigger_link: ${{ github.server_url }}/${{ github.repository }}/commit/${{ github.sha }}
-      action_link: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
-      start_time: ${{ github.event.head_commit.timestamp }}
-      notification_type: finish
-      thread_id: ${{ needs.notify-start.outputs.thread_id }}
-      duration_seconds: 120
-      status: success
-    secrets:
-      TEAMS_TEAM_ID: ${{ secrets.PROD_TEAMS_TEAM_ID }}
-      TEAMS_CHANNEL_ID: ${{ secrets.PROD_TEAMS_CHANNEL_ID }}
-      API_URL: ${{ secrets.PROD_DEPLOY_BOT_API_URL }}
-
-  # ========================================
-  # JOB 4: Notify Deployment Failure
-  # ========================================
-  notify-failure:
-    needs: [notify-start, deploy]
-    if: failure()
-    uses: ./.github/workflows/reusable-notify-deployment.yml
-    with:
-      repo_name: ${{ github.repository }}
-      repo_link: ${{ github.server_url }}/${{ github.repository }}
-      environment: production
-      trigger_by: ${{ github.actor }}
-      trigger_title: ${{ github.event.head_commit.message }}
-      trigger_link: ${{ github.server_url }}/${{ github.repository }}/commit/${{ github.sha }}
-      action_link: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
-      start_time: ${{ github.event.head_commit.timestamp }}
-      notification_type: finish
-      thread_id: ${{ needs.notify-start.outputs.thread_id }}
-      duration_seconds: 120
-      status: fail
-      error_message: Deployment failed - check workflow logs for details
-    secrets:
-      TEAMS_TEAM_ID: ${{ secrets.PROD_TEAMS_TEAM_ID }}
-      TEAMS_CHANNEL_ID: ${{ secrets.PROD_TEAMS_CHANNEL_ID }}
-      API_URL: ${{ secrets.PROD_DEPLOY_BOT_API_URL }}
