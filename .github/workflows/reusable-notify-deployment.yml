@@ -179,7 +179,8 @@ jobs:
               "actionLink": "${{ inputs.action_link }}",
               "environment": "${{ inputs.environment }}",
               "triggerBy": "${{ inputs.trigger_by }}",
-              "startTime": "${{ inputs.start_time }}"
+              "startTime": "${{ inputs.start_time }}",
+              "emailIds": "${{ inputs.email_ids }}"
             }')
           
           # Extract HTTP status code
@@ -241,7 +242,8 @@ jobs:
               "startTime": "${{ inputs.start_time }}",
               "durationInSeconds": ${{ inputs.duration_seconds }},
               "errorMessage": "'"$ERROR_MESSAGE"'",
-              "logsLink": "${{ inputs.logs_link }}"
+              "logsLink": "${{ inputs.logs_link }}",
+              "emailIds": "${{ inputs.email_ids }}"
             }')
           
           # Extract HTTP status code
