@@ -193,12 +193,12 @@ export class DeployNotificationService {
 			...conversationRef,
 			conversation: conversationRef.conversation
 				? {
-					id: `${conversationRef.conversation.id};messageid=${resultData.threadId}`,
-					isGroup: conversationRef.conversation.isGroup,
-					conversationType: conversationRef.conversation.conversationType,
-					tenantId: conversationRef.conversation.tenantId,
-					name: conversationRef.conversation.name,
-				}
+						id: `${conversationRef.conversation.id};messageid=${resultData.threadId}`,
+						isGroup: conversationRef.conversation.isGroup,
+						conversationType: conversationRef.conversation.conversationType,
+						tenantId: conversationRef.conversation.tenantId,
+						name: conversationRef.conversation.name,
+					}
 				: undefined,
 			activityId: resultData.threadId,
 		};
@@ -218,8 +218,8 @@ export class DeployNotificationService {
 							resultData.status === 'success'
 								? TeamsMessageBuilder.createSuccessDeploymentMessage(resultData)
 								: TeamsMessageBuilder.createFailureDeploymentMessage(
-									resultData,
-								);
+										resultData,
+									);
 
 						const activity: Partial<Activity> = {
 							type: 'message',
@@ -267,13 +267,13 @@ export class DeployNotificationService {
 						const text =
 							alertData.status === 'success'
 								? TeamsMessageBuilder.createSuccessDeploymentMessage(
-									// IAlertRequest is structurally compatible with IFinishDeploymentRequest
-									// except it has no threadId - cast is safe here
-									alertData as unknown as IFinishDeploymentRequest,
-								)
+										// IAlertRequest is structurally compatible with IFinishDeploymentRequest
+										// except it has no threadId - cast is safe here
+										alertData as unknown as IFinishDeploymentRequest,
+									)
 								: TeamsMessageBuilder.createFailureDeploymentMessage(
-									alertData as unknown as IFinishDeploymentRequest,
-								);
+										alertData as unknown as IFinishDeploymentRequest,
+									);
 
 						const activity: Partial<Activity> = { type: 'message', text };
 						await context.sendActivity(activity);

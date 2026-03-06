@@ -161,9 +161,9 @@ export async function authenticateGitHub(
 		}
 
 		// Optional: further restrict to specific repos within the org
-		const allowedRepos = process.env.ALLOWED_GITHUB_REPOS?.split(',').map((r) =>
-			r.trim(),
-		).filter(Boolean);
+		const allowedRepos = process.env.ALLOWED_GITHUB_REPOS?.split(',')
+			.map((r) => r.trim())
+			.filter(Boolean);
 
 		if (allowedRepos && allowedRepos.length > 0) {
 			if (!allowedRepos.includes(claims.repository)) {
@@ -281,7 +281,7 @@ export async function authenticateGitHub(
  *
  * @unused - Available for gradual migration scenarios
  */
-// eslint-disable-next-line @typescript-eslint/no-unused-vars
+
 export async function authenticateGitHubOrApiKey(
 	req: IRequestWithGitHub,
 	res: Response,
