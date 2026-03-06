@@ -138,17 +138,38 @@ export async function authenticateGitHub(
 		// Verify JWT token
 		const claims = await verifyGitHubToken(token);
 
-		// Validate repository if whitelist is configured
+		// Validate organisation if whitelist is configured
+		const allowedOrgs = process.env.ALLOWED_GITHUB_ORGS?.split(',').map((o) =>
+			o.trim(),
+		);
+
+		if (allowedOrgs && allowedOrgs.length > 0) {
+			if (!allowedOrgs.includes(claims.repository_owner)) {
+				log.warn('Unauthorized organisation attempted access', {
+					org: claims.repository_owner,
+					repository: claims.repository,
+					actor: claims.actor,
+				});
+
+				throw new HttpException(
+					403,
+					`Organisation '${claims.repository_owner}' is not authorized to access this API`,
+					'AUTH_ORG_FORBIDDEN',
+					'Organisation not in whitelist',
+				);
+			}
+		}
+
+		// Optional: further restrict to specific repos within the org
 		const allowedRepos = process.env.ALLOWED_GITHUB_REPOS?.split(',').map((r) =>
 			r.trim(),
-		);
+		).filter(Boolean);
 
 		if (allowedRepos && allowedRepos.length > 0) {
 			if (!allowedRepos.includes(claims.repository)) {
 				log.warn('Unauthorized repository attempted access', {
 					repository: claims.repository,
 					actor: claims.actor,
-					workflow: claims.workflow,
 				});
 
 				throw new HttpException(

@@ -11,6 +11,7 @@ import { TeamsMessageBuilder } from './deploy.messages';
 import {
 	IStartDeploymentRequest,
 	IFinishDeploymentRequest,
+	IAlertRequest,
 } from './deploy.interface';
 import { DeploymentEmailService } from './deploy.email';
 import { log } from '../../shared/utils/logger';
@@ -192,12 +193,12 @@ export class DeployNotificationService {
 			...conversationRef,
 			conversation: conversationRef.conversation
 				? {
-						id: `${conversationRef.conversation.id};messageid=${resultData.threadId}`,
-						isGroup: conversationRef.conversation.isGroup,
-						conversationType: conversationRef.conversation.conversationType,
-						tenantId: conversationRef.conversation.tenantId,
-						name: conversationRef.conversation.name,
-					}
+					id: `${conversationRef.conversation.id};messageid=${resultData.threadId}`,
+					isGroup: conversationRef.conversation.isGroup,
+					conversationType: conversationRef.conversation.conversationType,
+					tenantId: conversationRef.conversation.tenantId,
+					name: conversationRef.conversation.name,
+				}
 				: undefined,
 			activityId: resultData.threadId,
 		};
@@ -217,8 +218,8 @@ export class DeployNotificationService {
 							resultData.status === 'success'
 								? TeamsMessageBuilder.createSuccessDeploymentMessage(resultData)
 								: TeamsMessageBuilder.createFailureDeploymentMessage(
-										resultData,
-									);
+									resultData,
+								);
 
 						const activity: Partial<Activity> = {
 							type: 'message',
@@ -240,6 +241,59 @@ export class DeployNotificationService {
 						resolve();
 					} catch (error) {
 						log.error('Error sending result notification:', error);
+						reject(error instanceof Error ? error : new Error(String(error)));
+					}
+				},
+			);
+		});
+	}
+
+	/**
+	 * Send a standalone alert notification (no thread reply)
+	 * Used for DevOps-channel failure alerts that don't need a thread_id.
+	 * Posts as a new message directly to the channel.
+	 */
+	public async sendAlertNotification(alertData: IAlertRequest): Promise<void> {
+		const conversationRef = this.getConversationReference(
+			alertData.channelId,
+			Config.bot.tenantId,
+		);
+
+		return new Promise((resolve, reject) => {
+			void this.adapter.continueConversation(
+				conversationRef,
+				async (context: TurnContext) => {
+					try {
+						const text =
+							alertData.status === 'success'
+								? TeamsMessageBuilder.createSuccessDeploymentMessage(
+									// IAlertRequest is structurally compatible with IFinishDeploymentRequest
+									// except it has no threadId - cast is safe here
+									alertData as unknown as IFinishDeploymentRequest,
+								)
+								: TeamsMessageBuilder.createFailureDeploymentMessage(
+									alertData as unknown as IFinishDeploymentRequest,
+								);
+
+						const activity: Partial<Activity> = { type: 'message', text };
+						await context.sendActivity(activity);
+
+						// Fire-and-forget email
+						void this.emailService.sendFinishEmail(
+							alertData as unknown as IFinishDeploymentRequest,
+						);
+
+						log.info(
+							`Alert notification sent to channel ${alertData.channelId}`,
+							{
+								repoName: alertData.repoName,
+								environment: alertData.environment,
+								status: alertData.status,
+							},
+						);
+						resolve();
+					} catch (error) {
+						log.error('Error sending alert notification:', error);
 						reject(error instanceof Error ? error : new Error(String(error)));
 					}
 				},

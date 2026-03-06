@@ -19,6 +19,14 @@ router.post('/start', authenticateGitHub, DeployController.startDeployment);
 router.post('/result', authenticateGitHub, DeployController.finishDeployment);
 
 /**
+ * POST /deploy/alert
+ * Post a standalone failure alert to a channel (no thread ID needed)
+ * Used for DevOps-channel notifications that don't track a thread
+ * Protected with GitHub Actions OIDC authentication
+ */
+router.post('/alert', authenticateGitHub, DeployController.sendAlert);
+
+/**
  * POST /deploy/messages
  * Handle incoming Teams messages (for bot installation, etc.)
  * This endpoint is called by Microsoft Teams - no GitHub auth needed

@@ -43,6 +43,25 @@ export interface IFinishDeploymentRequest {
 	adaptiveCard?: Record<string, unknown>; // Optional custom adaptive card
 }
 
+/**
+ * Request payload for a standalone alert notification (no thread)
+ * Used for DevOps-channel failure alerts — posts as a new message, not a thread reply
+ */
+export interface IAlertRequest {
+	teamId: string;
+	channelId: string;
+	repoName: string;
+	repoLink: string;
+	durationInSeconds: number;
+	startTime: string; // ISO-8601 string
+	status: 'success' | 'fail';
+	triggerBy: string;
+	errorMessage?: string;
+	logsLink?: string;
+	environment: string; // dev | staging | prod
+	emailIds?: string; // Optional comma separated string
+}
+
 export interface IDeployStartEmailPayload {
 	repoName: string;
 	repoLink: string;
