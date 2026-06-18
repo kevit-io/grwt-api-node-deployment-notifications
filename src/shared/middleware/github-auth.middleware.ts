@@ -73,7 +73,7 @@ function verifyGitHubToken(token: string): Promise<IGitHubOIDCClaims> {
 				algorithms: ['RS256'],
 				issuer: 'https://token.actions.githubusercontent.com',
 				// Audience verification is important - set your API URL in env
-				audience: process.env.GITHUB_OIDC_AUDIENCE || '',
+				audience: process.env.GH_OIDC_AUDIENCE || '',
 			},
 			(err, decoded) => {
 				if (err) {

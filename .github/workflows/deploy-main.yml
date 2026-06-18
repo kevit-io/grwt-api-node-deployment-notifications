@@ -1,64 +1,243 @@
-name: Deploy Main Branch
- 
+name: Deploy Production
+
 on:
   push:
     branches:
       - main
+  workflow_dispatch:
+
+permissions:
+  id-token: write
+  contents: write
 
 jobs:
-  deploy:
+  # 1. Setup
+  setup:
     runs-on: ubuntu-latest
+    timeout-minutes: 5
+    outputs:
+      version: ${{ steps.version.outputs.sha }}
+      environment: ${{ steps.meta.outputs.environment }}
+      service: grwt-api-node-deployment-notifications
+      matrix: ${{ steps.meta.outputs.matrix }}
+      start_time: ${{ steps.record_start.outputs.start }}
 
     steps:
-      - name: Set up SSH
+      - name: Record pipeline start time
+        id: record_start
+        run: echo "start=$(date +%s)" >> $GITHUB_OUTPUT
+
+      - name: Checkout code
+        uses: actions/checkout@v6
+        with:
+          fetch-depth: 0
+
+      - name: Determine version (Short SHA)
+        id: version
         run: |
-          mkdir -p /home/runner/.ssh
-          echo "${{ secrets.PROD_SSH_PRIVATE_KEY }}" > /home/runner/.ssh/id_rsa
-          chmod 600 /home/runner/.ssh/id_rsa
-          ssh-keyscan -p ${{ secrets.PROD_SSH_PORT }} -H ${{ secrets.PROD_SSH_HOST }} >> /home/runner/.ssh/known_hosts
+          SHORT_SHA=$(git rev-parse --short HEAD)
+          echo "sha=$SHORT_SHA" >> "$GITHUB_OUTPUT"
+          echo "▸ Version: $SHORT_SHA"
+
+      - name: Set service metadata
+        id: meta
+        run: |
+          if [ "$GITHUB_REF_NAME" = "main" ]; then
+            ENV_NAME="production"
+          else
+            ENV_NAME="dev"
+          fi
+          
+          echo "environment=$ENV_NAME" >> $GITHUB_OUTPUT
+          MATRIX_JSON="{\"service\":[{\"name\":\"grwt-api-node-deployment-notifications\",\"dockerfile\":\"Dockerfile\",\"image_name\":\"grwt-api-node-deployment-notifications-${ENV_NAME}\"}]}"
+          echo "matrix=$MATRIX_JSON" >> $GITHUB_OUTPUT
+
+  # 2. Build & Push to ECR
+  build-and-push:
+    name: Build and Push Docker Image
+    needs: [ setup ]
+    if: always() && (needs.setup.result == 'success')
+    runs-on: ubuntu-latest
+    environment: ${{ needs.setup.outputs.environment }}
+    strategy:
+      matrix: ${{ fromJSON(needs.setup.outputs.matrix) }}
+    env:
+      VERSION: ${{ needs.setup.outputs.version }}
+      ECR_REPOSITORY: ${{ secrets.ECR_REPOSITORY }}
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v6
+
+      - name: Configure AWS credentials
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          aws-access-key-id: ${{ secrets.ECR_AWS_ACCESS_KEY_ID }}
+          aws-secret-access-key: ${{ secrets.ECR_AWS_SECRET_ACCESS_KEY }}
+          aws-region: ${{ secrets.ECR_AWS_REGION }}
+          mask-aws-account-id: true
+
+      - name: Login to Amazon ECR
+        id: login-ecr
+        uses: aws-actions/amazon-ecr-login@v2
+        with:
+          mask-password: true
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v4
+
+      - name: Build and Push
+        uses: docker/build-push-action@v7
+        with:
+          context: .
+          file: ${{ matrix.service.dockerfile }}
+          push: true
+          tags: |
+            ${{ steps.login-ecr.outputs.registry }}/${{ env.ECR_REPOSITORY }}:${{ needs.setup.outputs.environment }}-${{ env.VERSION }}
+            ${{ steps.login-ecr.outputs.registry }}/${{ env.ECR_REPOSITORY }}:${{ needs.setup.outputs.environment }}-latest
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+          provenance: false
+          sbom: false
+
+  # 3. Deploy on Remote Server via SSH
+  deploy:
+    name: Deploy
+    needs: [ build-and-push, setup ]
+    runs-on: ubuntu-latest
+    environment: ${{ needs.setup.outputs.environment }}
+    outputs:
+      duration: ${{ steps.calc-duration.outputs.duration }}
+    strategy:
+      matrix: ${{ fromJSON(needs.setup.outputs.matrix) }}
+    env:
+      VERSION: ${{ needs.setup.outputs.version }}
+      ECR_REPOSITORY: ${{ secrets.ECR_REPOSITORY }}
+      ENVIRONMENT: ${{ needs.setup.outputs.environment }}
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v6
+
+      - name: Configure AWS credentials
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          aws-access-key-id: ${{ secrets.ECR_AWS_ACCESS_KEY_ID }}
+          aws-secret-access-key: ${{ secrets.ECR_AWS_SECRET_ACCESS_KEY }}
+          aws-region: ${{ secrets.ECR_AWS_REGION }}
+          mask-aws-account-id: true
+
+      - name: Login to Amazon ECR (resolve registry URL)
+        id: login-ecr
+        uses: aws-actions/amazon-ecr-login@v2
+        with:
+          mask-password: true
+
+      - name: Compose image URI
+        id: image
+        run: |
+          REGISTRY="${{ steps.login-ecr.outputs.registry }}"
+          IMAGE_URI="${REGISTRY}/${ECR_REPOSITORY}:${ENVIRONMENT}-${VERSION}"
+          echo "✅ Registry:  $REGISTRY"
+          echo "✅ Image URI: $IMAGE_URI"
+          echo "ecr_registry=$REGISTRY" >> $GITHUB_OUTPUT
+          echo "image_uri=$IMAGE_URI" >> $GITHUB_OUTPUT
 
       - name: Create .env file dynamically
         env:
           ALLMYSECRETS: ${{ toJSON(secrets) }}
         run: |
-          echo "Creating .env file dynamically..."
+          echo "🔐 Generating dynamic .env file for ${{ needs.setup.outputs.environment }}..."
+          
           echo "$ALLMYSECRETS" | jq -r '
             to_entries[]
-            | select(.key | startswith("PROD_"))
-            | select(.key == "PROD_SSH_HOST" or .key == "PROD_SSH_PORT" or .key == "PROD_SSH_USER" or .key == "PROD_SSH_PRIVATE_KEY" | not)
-            | select(.key == "PROD_TEAMS_TEAM_ID" or .key == "PROD_TEAMS_CHANNEL_ID" | not)
-            | select(.key == "PROD_DEPLOY_BOT_API_URL" | not)
-            | select(.key == "PROD_PM_EMAIL" | not)
             | select(.key | ascii_downcase != "github_token")
-            | "\( .key | sub("^PROD_"; "") )=\(.value)"
-          ' >> .env
-          echo ".env file created successfully."
+            | select(.key | startswith("PROD_") | not)
+            | select(.key | startswith("STAGE_") | not)
+            | select(.key | startswith("DEVELOPERS_") | not)
+            | select(.key | startswith("DEVOPS_") | not)
+            | select(.key | startswith("DEPLOY_BOT_") | not)
+            | select(.key | startswith("DEV_") | not)
+            | select(.key | startswith("ECR_") | not)
+            | select(.key | startswith("SERVER_") | not)
+            | select(.key | startswith("SSH_") | not)
+            | select(.key | startswith("DEPLOY_") | not)
+            | "\(.key)=\(.value)"
+          ' > .env
+          echo "NODE_ENV=${{ needs.setup.outputs.environment }}" >> .env
+          chmod 644 .env
+          echo "✅ .env file created (keys only):"
+          cut -d= -f1 .env
 
-      - name: Copy .env file to remote server
+      - name: Copy files to server via rsync
         env:
-          SSH_PORT: ${{ secrets.PROD_SSH_PORT }}
-          SSH_USER: ${{ secrets.PROD_SSH_USER }}
-          SSH_HOST: ${{ secrets.PROD_SSH_HOST }}
+          SSH_PRIVATE_KEY: ${{ secrets.SSH_PRIVATE_KEY }}
+          SERVER_HOST: ${{ secrets.SERVER_HOST }}
+          SERVER_USER: ${{ secrets.SERVER_USER }}
+          SSH_PORT: ${{ secrets.SSH_PORT }}
+          DEPLOY_PATH: ${{ secrets.DEPLOY_PATH }}
         run: |
-          echo "Copying .env file to remote server using scp..."
-          ssh -p $SSH_PORT -i /home/runner/.ssh/id_rsa $SSH_USER@$SSH_HOST "rm -f /home/$SSH_USER/projects/grwt-api-node-deployment-notifications-prod/.env"
-          scp -P $SSH_PORT -i /home/runner/.ssh/id_rsa .env $SSH_USER@$SSH_HOST:/home/$SSH_USER/projects/grwt-api-node-deployment-notifications-prod/.env
-          echo ".env file copied successfully."
+          mkdir -p ~/.ssh
+          echo "$SSH_PRIVATE_KEY" > ~/.ssh/id_rsa
+          chmod 600 ~/.ssh/id_rsa
+          ssh-keyscan -p ${SSH_PORT} ${SERVER_HOST} >> ~/.ssh/known_hosts 2>/dev/null
 
-      - name: Deploy Application
+          ssh -i ~/.ssh/id_rsa -p ${SSH_PORT} -o StrictHostKeyChecking=no \
+            ${SERVER_USER}@${SERVER_HOST} "mkdir -p ${DEPLOY_PATH}"
+
+          # Sync .env
+          rsync -avz \
+            -e "ssh -i ~/.ssh/id_rsa -p ${SSH_PORT} -o StrictHostKeyChecking=no" \
+            --include='.env' \
+            --exclude='*' \
+            ./ ${SERVER_USER}@${SERVER_HOST}:${DEPLOY_PATH}/
+            
+          # Copy docker-compose.yml
+          scp -P ${SSH_PORT} -i ~/.ssh/id_rsa -o StrictHostKeyChecking=no ./docker-compose.yml ${SERVER_USER}@${SERVER_HOST}:${DEPLOY_PATH}/docker-compose.yml
+
+      - name: Deploy to server via SSH
+        uses: appleboy/ssh-action@v1.0.3
+        env:
+          ECR_REGISTRY: ${{ steps.image.outputs.ecr_registry }}
+          IMAGE_URI: ${{ steps.image.outputs.image_uri }}
+          SERVICE_NAME: ${{ matrix.service.name }}-${{ needs.setup.outputs.environment }}
+          ECR_AWS_REGION: ${{ secrets.ECR_AWS_REGION }}
+          ECR_AWS_PROFILE: ${{ secrets.ECR_AWS_PROFILE }}
+          DEPLOY_PATH: ${{ secrets.DEPLOY_PATH }}
+        with:
+          host: ${{ secrets.SERVER_HOST }}
+          username: ${{ secrets.SERVER_USER }}
+          key: ${{ secrets.SSH_PRIVATE_KEY }}
+          port: ${{ secrets.SSH_PORT }}
+          envs: ECR_REGISTRY,IMAGE_URI,SERVICE_NAME,ECR_AWS_REGION,ECR_AWS_PROFILE,DEPLOY_PATH
+          script: |
+            set -e
+            cd "$DEPLOY_PATH"
+
+            echo "🔐 Logging in to ECR: $ECR_REGISTRY (region=$ECR_AWS_REGION, profile=$ECR_AWS_PROFILE)"
+            if [ -n "$ECR_AWS_PROFILE" ]; then
+              aws ecr get-login-password --region "$ECR_AWS_REGION" --profile "$ECR_AWS_PROFILE" \
+                | docker login --username AWS --password-stdin "$ECR_REGISTRY"
+            else
+              aws ecr get-login-password --region "$ECR_AWS_REGION" \
+                | docker login --username AWS --password-stdin "$ECR_REGISTRY"
+            fi
+
+            echo "📦 Pulling image: $IMAGE_URI"
+            docker pull $IMAGE_URI
+
+            echo "🚀 Starting NEW container using Docker Compose..."
+            export IMAGE_URI=$IMAGE_URI
+            export CONTAINER_NAME=$SERVICE_NAME
+            docker compose up -d
+
+            echo "✅ Container started: $SERVICE_NAME"
+            echo "🧹 Pruning dangling images"
+            docker image prune -f || true
+
+      - name: Calculate Duration
+        id: calc-duration
+        if: always()
         run: |
-          echo "Logging into the server..."
-          ssh -p ${{ secrets.PROD_SSH_PORT }} -i /home/runner/.ssh/id_rsa ${{ secrets.PROD_SSH_USER }}@${{ secrets.PROD_SSH_HOST }} << 'EOF'
-            echo "Logged into the server"
-            cd /home/${{ secrets.PROD_SSH_USER }}/projects/grwt-api-node-deployment-notifications-prod/
-            git checkout main
-            git fetch origin
-            git reset --hard origin/main
-            npm i
-            rm -rf lib/
-            npm run build
-            echo "Restarting PM2 process..."
-            pm2 restart ecosystem.config.js --only grwt-api-node-deployment-notifications-prod || pm2 start ecosystem.config.js --only grwt-api-node-deployment-notifications-prod
-            pm2 save
-          EOF
-          echo "Deployment completed successfully."
+          DURATION=$(( $(date +%s) - ${{ needs.setup.outputs.start_time }} ))
+          echo "duration=$DURATION" >> $GITHUB_OUTPUT

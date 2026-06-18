@@ -1,20 +1,35 @@
-# Use Node.js official image
-FROM node:20
+# ── Stage 1: Build ────────────────────────────────────────────────────────────
+FROM node:24-alpine AS builder
+WORKDIR /app
 
-# Set the working directory
-WORKDIR /usr/src/app
+COPY package.json package-lock.json ./
+RUN npm ci --ignore-scripts
 
-# Copy package.json and package-lock.json
-COPY package*.json ./
-
-# Install only production dependencies (if applicable)
-RUN npm install
-
-# Copy the source code into the container
 COPY . .
+RUN npm run build
 
-# Expose the port that your application runs on
-EXPOSE 5000
+# ── Stage 2: Production ────────────────────────────────────────────────────────
+FROM node:24-alpine AS production
+WORKDIR /app
 
-# Command to run your application
-CMD ["npm","run","start:prod"]
+ENV NODE_ENV=production
+
+# Patch Alpine CVEs before freezing the image
+RUN apk update && apk upgrade --no-cache
+
+# Ensure the non-root 'node' user owns the working directory
+RUN chown -R node:node /app
+
+# Switch to the non-root 'node' user for security
+USER node
+
+# Copy package files with correct ownership
+COPY --chown=node:node package.json package-lock.json ./
+
+# Install prod deps only — keeps image lean, no devDependencies
+RUN npm ci --omit=dev --ignore-scripts && npm cache clean --force
+
+# Copy the compiled code from the builder stage with correct ownership
+COPY --chown=node:node --from=builder /app/lib ./lib
+
+CMD ["node", "lib/app.js"]

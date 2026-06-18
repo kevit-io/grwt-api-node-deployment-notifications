@@ -1,33 +1,19 @@
-version: '3'
-
 services:
-  mongo:
-    image: mongo:latest
-    container_name: mongodb
-    ports:
-      - "27017:27017"
-    volumes:
-      - mongo-data:/data/db
-    networks:
-      - app-network
-
   express-app:
-    build: .
-    container_name: express-app
+    build: 
+      context: .
+    image: ${IMAGE_URI:-grwt-api-node-deployment-notifications:latest}
+    container_name: ${CONTAINER_NAME:-express-app}
+    restart: unless-stopped
     ports:
-      - "5000:5000"
-    environment:
-      MONGODB_URL: mongodb://mongo:27017/ts-jump-start-db
-    depends_on:
-      - mongo
+      # Use dynamic port from environment variable, falling back to 5000 if not set
+      - '${HOST_PORT:-3000}:3000'
+    env_file:
+      - .env
+    extra_hosts:
+      - 'host.docker.internal:host-gateway'
     networks:
       - app-network
-    volumes:
-      - .:/usr/src/mongo.:/usr/src/app
-    command: npm run start:prod
-
-volumes:
-  mongo-data:
 
 networks:
   app-network:

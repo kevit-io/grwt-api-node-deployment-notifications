@@ -17,7 +17,7 @@ const Config = {
 	},
 	auth: {
 		// GitHub Actions OIDC configuration
-		githubOidcAudience: process.env.GITHUB_OIDC_AUDIENCE || '',
+		githubOidcAudience: process.env.GH_OIDC_AUDIENCE || '',
 		// Whitelist by org (any repo in the org is allowed)
 		allowedGithubOrgs: process.env.ALLOWED_GITHUB_ORGS || '',
 		// Optional: further restrict to specific repos within the org
