@@ -7,7 +7,7 @@ services:
     restart: unless-stopped
     ports:
       # Use dynamic port from environment variable, falling back to 5000 if not set
-      - '${HOST_PORT:-3000}:3000'
+      - '${HOST_PORT}:${HOST_PORT}'
     env_file:
       - .env
     extra_hosts:
