@@ -8,6 +8,8 @@ services:
     ports:
       # Use dynamic port from environment variable, falling back to 5000 if not set
       - '${HOST_PORT}:${HOST_PORT}'
+    environment:
+      - PORT=${HOST_PORT}
     env_file:
       - .env
     extra_hosts:
