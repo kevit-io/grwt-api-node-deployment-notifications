@@ -1,0 +1,396 @@
+name: Deployment Notification
+description: >-
+  Post a deployment start, result or alert notification to Microsoft Teams
+  (and optionally email) through the deployment notifications API.
+author: kevit-io
+
+branding:
+  icon: bell
+  color: blue
+
+inputs:
+  # ── Where to send it ────────────────────────────────────────────────────────
+  api_url:
+    description: >-
+      Base URL of the deployment notifications API, with no trailing slash.
+      This doubles as the OIDC token audience, so it must match the API's
+      GH_OIDC_AUDIENCE exactly or every call is rejected with 401.
+    required: true
+  team_id:
+    description: Microsoft Teams team ID.
+    required: true
+  channel_id:
+    description: Microsoft Teams channel ID.
+    required: true
+
+  # ── What happened ───────────────────────────────────────────────────────────
+  type:
+    description: 'What to post: start, finish or alert.'
+    required: true
+  environment:
+    description: Target environment, e.g. development, staging or production.
+    required: true
+  status:
+    description: 'success or fail. Ignored when type is start.'
+    required: false
+    default: success
+  thread_id:
+    description: >-
+      Thread ID returned by the matching start notification. Required for
+      type=finish; when it is empty the action posts a standalone alert
+      instead, so a deployment result is never silently dropped.
+    required: false
+    default: ''
+  duration_seconds:
+    description: >-
+      Deployment duration in seconds. When left empty, it is measured from the
+      start notification if that ran earlier in the same job, so a single-job
+      pipeline needs no record-start/calc-duration steps at all. Anything still
+      unresolved is normalised to 0, because the API rejects the field when it
+      is absent.
+    required: false
+    default: ''
+  error_message:
+    description: Error text for a failed deployment. The API trims it to 300 characters.
+    required: false
+    default: ''
+  logs_link:
+    description: Link to deployment logs. When set, the error text links to it.
+    required: false
+    default: ''
+  email_ids:
+    description: Comma-separated recipients. No email is sent when empty.
+    required: false
+    default: ''
+
+  # ── Behaviour ───────────────────────────────────────────────────────────────
+  fail_on_error:
+    description: >-
+      Fail the step when the API call fails. Off by default, because a broken
+      notification should not fail a deployment that otherwise worked. Failures
+      are always surfaced as an error annotation either way.
+    required: false
+    default: 'false'
+
+  # ── Derived from the run; override only when the default is wrong ───────────
+  repo_name:
+    description: Repository name shown in the message.
+    required: false
+    default: ${{ github.repository }}
+  repo_link:
+    description: Link behind the repository name.
+    required: false
+    default: ${{ github.server_url }}/${{ github.repository }}
+  trigger_by:
+    description: Who is shown as having triggered the deployment.
+    required: false
+    default: ${{ github.actor }}
+  action_link:
+    description: Link behind the "Go to Action Runner" button.
+    required: false
+    default: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+  trigger_title:
+    description: >-
+      Display text for the trigger. Defaults to "Deploy <ref> to <environment>"
+      on a tag, or the first line of the commit message otherwise.
+    required: false
+    default: ''
+  trigger_link:
+    description: >-
+      Link behind the trigger title. Defaults to the release page for a tag,
+      or the commit page otherwise.
+    required: false
+    default: ''
+  start_time:
+    description: >-
+      ISO-8601 deployment start time. Defaults to now for a start notification,
+      and to now minus duration_seconds for a result, which keeps the displayed
+      start consistent with the duration the pipeline actually measured.
+    required: false
+    default: ''
+
+outputs:
+  thread_id:
+    description: >-
+      Teams thread ID from a start notification. Pass it to the matching finish
+      notification so the result lands as a reply.
+    value: ${{ steps.notify.outputs.thread_id }}
+  http_status:
+    description: HTTP status returned by the API.
+    value: ${{ steps.notify.outputs.http_status }}
+
+runs:
+  using: composite
+  steps:
+    # Every value reaches the shell through env, never through ${{ }}
+    # interpolation inside run: — a commit message containing a quote or a
+    # $(...) would otherwise be pasted straight into the script.
+    - name: Build notification payload
+      id: payload
+      shell: bash
+      env:
+        TYPE: ${{ inputs.type }}
+        STATUS: ${{ inputs.status }}
+        ENVIRONMENT: ${{ inputs.environment }}
+        FAIL_ON_ERROR: ${{ inputs.fail_on_error }}
+        TEAM_ID: ${{ inputs.team_id }}
+        CHANNEL_ID: ${{ inputs.channel_id }}
+        API_URL: ${{ inputs.api_url }}
+        THREAD_ID: ${{ inputs.thread_id }}
+        DURATION: ${{ inputs.duration_seconds }}
+        ERROR_MESSAGE: ${{ inputs.error_message }}
+        LOGS_LINK: ${{ inputs.logs_link }}
+        EMAIL_IDS: ${{ inputs.email_ids }}
+        REPO_NAME: ${{ inputs.repo_name }}
+        REPO_LINK: ${{ inputs.repo_link }}
+        TRIGGER_BY: ${{ inputs.trigger_by }}
+        TRIGGER_TITLE: ${{ inputs.trigger_title }}
+        TRIGGER_LINK: ${{ inputs.trigger_link }}
+        ACTION_LINK: ${{ inputs.action_link }}
+        START_TIME: ${{ inputs.start_time }}
+        SERVER_URL: ${{ github.server_url }}
+        COMMIT_MESSAGE: ${{ github.event.head_commit.message }}
+      run: |
+        set -uo pipefail
+
+        case "$TYPE" in
+          start|finish|alert) ;;
+          *) echo "::error::type must be start, finish or alert (got '$TYPE')"; exit 1 ;;
+        esac
+
+        case "$STATUS" in
+          success|fail) ;;
+          *) echo "::error::status must be success or fail (got '$STATUS')"; exit 1 ;;
+        esac
+
+        # An empty required value is a runtime data problem, not an authoring
+        # one: it usually means an upstream job failed and its output never got
+        # set. Report it, but honour fail_on_error rather than turning a
+        # deployment red over a notification that could not be addressed.
+        for required in ENVIRONMENT API_URL TEAM_ID CHANNEL_ID; do
+          if [ -z "${!required}" ]; then
+            echo "::error::${required,,} is required and was empty — cannot send this notification."
+            if [ "$FAIL_ON_ERROR" = true ]; then
+              exit 1
+            fi
+            echo "skip=true" >> "$GITHUB_OUTPUT"
+            echo "::warning::Skipping the notification; set fail_on_error: true to fail instead."
+            exit 0
+          fi
+        done
+
+        # A finish step later in the same job can measure the duration itself
+        # from the start notification, so pipelines that run start and finish
+        # in one job need no record-start/calc-duration plumbing.
+        if [ -z "$DURATION" ] && [ "$TYPE" != start ] && [ -n "${DEPLOY_NOTIFY_STARTED_AT:-}" ]; then
+          DURATION=$(( $(date +%s) - DEPLOY_NOTIFY_STARTED_AT ))
+          [ "$DURATION" -ge 0 ] || DURATION=0
+        fi
+
+        # The API treats a missing duration as a missing required field, and
+        # callers routinely pass an empty string or nothing at all on the
+        # failure path. Always send a number.
+        case "$DURATION" in
+          ''|*[!0-9]*) DURATION=0 ;;
+        esac
+
+        # Remember the start so the finish step above can find it.
+        if [ "$TYPE" = start ]; then
+          echo "DEPLOY_NOTIFY_STARTED_AT=$(date +%s)" >> "$GITHUB_ENV"
+        fi
+
+        # A result with no thread would be rejected outright. Post it as a
+        # standalone message instead — a lost failure notification is far worse
+        # than one that is not threaded.
+        if [ "$TYPE" = finish ] && [ -z "$THREAD_ID" ]; then
+          echo "::warning::No thread_id supplied; posting a standalone alert so this result is not lost."
+          TYPE=alert
+        fi
+
+        # Callers commonly pass an expression with an empty-string fallback,
+        # and an explicit empty string overrides an input default — so fall
+        # back here as well as in the input defaults above.
+        [ -n "$REPO_NAME" ]  || REPO_NAME="$GITHUB_REPOSITORY"
+        [ -n "$REPO_LINK" ]  || REPO_LINK="$SERVER_URL/$GITHUB_REPOSITORY"
+        [ -n "$TRIGGER_BY" ] || TRIGGER_BY="$GITHUB_ACTOR"
+        [ -n "$ACTION_LINK" ] || ACTION_LINK="$SERVER_URL/$GITHUB_REPOSITORY/actions/runs/$GITHUB_RUN_ID"
+
+        iso_utc() {
+          date -u -d "@$1" +%Y-%m-%dT%H:%M:%SZ 2>/dev/null \
+            || date -u -r "$1" +%Y-%m-%dT%H:%M:%SZ
+        }
+
+        # head_commit.timestamp is the commit's authored time, which on a tag
+        # pushed days after the commit is nowhere near the deployment. Derive
+        # the start from the run instead, so it agrees with the duration.
+        if [ -z "$START_TIME" ]; then
+          if [ "$TYPE" = start ]; then
+            START_TIME="$(iso_utc "$(date +%s)")"
+          else
+            START_TIME="$(iso_utc "$(( $(date +%s) - DURATION ))")"
+          fi
+        fi
+
+        if [ -z "$TRIGGER_TITLE" ]; then
+          if [ "${GITHUB_REF_TYPE:-}" = tag ]; then
+            TRIGGER_TITLE="Deploy $GITHUB_REF_NAME to $ENVIRONMENT"
+          else
+            TRIGGER_TITLE="$(printf '%s' "$COMMIT_MESSAGE" | head -n 1)"
+            [ -n "$TRIGGER_TITLE" ] || TRIGGER_TITLE="Deploy ${GITHUB_SHA:0:7} to $ENVIRONMENT"
+          fi
+        fi
+
+        if [ -z "$TRIGGER_LINK" ]; then
+          if [ "${GITHUB_REF_TYPE:-}" = tag ]; then
+            TRIGGER_LINK="$SERVER_URL/$GITHUB_REPOSITORY/releases/tag/$GITHUB_REF_NAME"
+          else
+            TRIGGER_LINK="$SERVER_URL/$GITHUB_REPOSITORY/commit/$GITHUB_SHA"
+          fi
+        fi
+
+        PAYLOAD_FILE="$RUNNER_TEMP/deploy-notify-payload.json"
+
+        # jq --arg quotes and escapes every value, so newlines and quotes in a
+        # commit message or a build log cannot break the JSON.
+        case "$TYPE" in
+          start)
+            ENDPOINT="$API_URL/deploy/start"
+            jq -n \
+              --arg teamId "$TEAM_ID" \
+              --arg channelId "$CHANNEL_ID" \
+              --arg repoName "$REPO_NAME" \
+              --arg repoLink "$REPO_LINK" \
+              --arg triggerTitle "$TRIGGER_TITLE" \
+              --arg triggerLink "$TRIGGER_LINK" \
+              --arg actionLink "$ACTION_LINK" \
+              --arg environment "$ENVIRONMENT" \
+              --arg triggerBy "$TRIGGER_BY" \
+              --arg startTime "$START_TIME" \
+              --arg emailIds "$EMAIL_IDS" \
+              '$ARGS.named' > "$PAYLOAD_FILE"
+            ;;
+          finish)
+            ENDPOINT="$API_URL/deploy/result"
+            jq -n \
+              --arg teamId "$TEAM_ID" \
+              --arg channelId "$CHANNEL_ID" \
+              --arg threadId "$THREAD_ID" \
+              --arg repoName "$REPO_NAME" \
+              --arg repoLink "$REPO_LINK" \
+              --arg environment "$ENVIRONMENT" \
+              --arg status "$STATUS" \
+              --arg triggerBy "$TRIGGER_BY" \
+              --arg startTime "$START_TIME" \
+              --argjson durationInSeconds "$DURATION" \
+              --arg errorMessage "$ERROR_MESSAGE" \
+              --arg logsLink "$LOGS_LINK" \
+              --arg emailIds "$EMAIL_IDS" \
+              '$ARGS.named' > "$PAYLOAD_FILE"
+            ;;
+          alert)
+            ENDPOINT="$API_URL/deploy/alert"
+            jq -n \
+              --arg teamId "$TEAM_ID" \
+              --arg channelId "$CHANNEL_ID" \
+              --arg repoName "$REPO_NAME" \
+              --arg repoLink "$REPO_LINK" \
+              --arg environment "$ENVIRONMENT" \
+              --arg status "$STATUS" \
+              --arg triggerBy "$TRIGGER_BY" \
+              --arg startTime "$START_TIME" \
+              --argjson durationInSeconds "$DURATION" \
+              --arg errorMessage "$ERROR_MESSAGE" \
+              --arg logsLink "$LOGS_LINK" \
+              --arg emailIds "$EMAIL_IDS" \
+              '$ARGS.named' > "$PAYLOAD_FILE"
+            ;;
+        esac
+
+        {
+          echo "type=$TYPE"
+          echo "endpoint=$ENDPOINT"
+          echo "payload_file=$PAYLOAD_FILE"
+        } >> "$GITHUB_OUTPUT"
+
+        echo "▸ $TYPE → $ENDPOINT"
+        echo "▸ $REPO_NAME [$ENVIRONMENT] by $TRIGGER_BY, started $START_TIME, ${DURATION}s"
+
+    - name: Request GitHub OIDC token
+      id: oidc
+      if: steps.payload.outputs.skip != 'true'
+      shell: bash
+      env:
+        AUDIENCE: ${{ inputs.api_url }}
+      run: |
+        set -uo pipefail
+
+        if [ -z "${ACTIONS_ID_TOKEN_REQUEST_URL:-}" ]; then
+          echo "::error::No OIDC token available. The job calling this action needs 'permissions: id-token: write'."
+          exit 1
+        fi
+
+        TOKEN="$(curl -sS --max-time 20 \
+          -H "Authorization: bearer $ACTIONS_ID_TOKEN_REQUEST_TOKEN" \
+          "${ACTIONS_ID_TOKEN_REQUEST_URL}&audience=${AUDIENCE}" | jq -r '.value // empty')"
+
+        if [ -z "$TOKEN" ]; then
+          echo "::error::GitHub did not return an OIDC token."
+          exit 1
+        fi
+
+        echo "::add-mask::$TOKEN"
+        echo "token=$TOKEN" >> "$GITHUB_OUTPUT"
+
+    - name: Send notification
+      id: notify
+      if: steps.payload.outputs.skip != 'true'
+      shell: bash
+      env:
+        TYPE: ${{ steps.payload.outputs.type }}
+        ENDPOINT: ${{ steps.payload.outputs.endpoint }}
+        PAYLOAD_FILE: ${{ steps.payload.outputs.payload_file }}
+        OIDC_TOKEN: ${{ steps.oidc.outputs.token }}
+        FAIL_ON_ERROR: ${{ inputs.fail_on_error }}
+      run: |
+        set -uo pipefail
+
+        BODY_FILE="$RUNNER_TEMP/deploy-notify-response.json"
+
+        # --retry without --retry-all-errors covers connection failures and
+        # timeouts only, where the request never landed. Retrying a request the
+        # API already processed would post the message twice.
+        HTTP_CODE="$(curl -sS -o "$BODY_FILE" -w '%{http_code}' \
+          --retry 2 --retry-delay 2 --retry-connrefused --max-time 30 \
+          -X POST "$ENDPOINT" \
+          -H "Authorization: Bearer $OIDC_TOKEN" \
+          -H 'Content-Type: application/json' \
+          --data-binary "@$PAYLOAD_FILE")" || HTTP_CODE=000
+
+        echo "http_status=$HTTP_CODE" >> "$GITHUB_OUTPUT"
+        echo "HTTP $HTTP_CODE from $ENDPOINT"
+        cat "$BODY_FILE" 2>/dev/null
+        echo
+
+        if [ "$HTTP_CODE" != 200 ]; then
+          echo "::error::Deployment notification failed (HTTP $HTTP_CODE) — see the response above."
+          if [ "$FAIL_ON_ERROR" = true ]; then
+            exit 1
+          fi
+          echo "::warning::Not failing the job; set fail_on_error: true to change that."
+          exit 0
+        fi
+
+        if [ "$TYPE" = start ]; then
+          THREAD_ID="$(jq -r '.data.threadId // empty' "$BODY_FILE")"
+          if [ -z "$THREAD_ID" ]; then
+            echo "::error::The API accepted the request but returned no thread ID."
+            if [ "$FAIL_ON_ERROR" = true ]; then
+              exit 1
+            fi
+            exit 0
+          fi
+          echo "thread_id=$THREAD_ID" >> "$GITHUB_OUTPUT"
+          echo "✅ Thread ID: $THREAD_ID"
+        else
+          echo "✅ Notification sent."
+        fi
