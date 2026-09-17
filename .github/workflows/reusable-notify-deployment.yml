@@ -5,7 +5,7 @@ name: Reusable Deployment Notification Workflow
 # composite action directly — as a step it reads the run's own context, so most
 # of the inputs below stop being necessary:
 #
-#   - uses: kevit-io/grwt-api-node-deployment-notifications/.github/actions/notify-deployment@main
+#   - uses: kevit-io/grwt-api-node-deployment-notifications/.github/actions/notify-deployment@v1
 #     with:
 #       type: finish
 #       status: success
@@ -134,7 +134,7 @@ jobs:
     steps:
       - name: Send deployment notification
         id: notify
-        uses: kevit-io/grwt-api-node-deployment-notifications/.github/actions/notify-deployment@main
+        uses: kevit-io/grwt-api-node-deployment-notifications/.github/actions/notify-deployment@v1
         with:
           api_url: ${{ secrets.API_URL }}
           team_id: ${{ secrets.TEAMS_TEAM_ID }}

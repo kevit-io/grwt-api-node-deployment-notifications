@@ -9,7 +9,7 @@ the repository, links, actor, start time and duration no longer have to be
 passed in — in a single-job pipeline you write three lines of real input.
 
 ```yaml
-- uses: kevit-io/grwt-api-node-deployment-notifications/.github/actions/notify-deployment@main
+- uses: kevit-io/grwt-api-node-deployment-notifications/.github/actions/notify-deployment@v1
   with:
     type: start
     environment: production
@@ -67,7 +67,7 @@ jobs:
       NOTIFY_ENV: ${{ needs.parse.outputs.environment }}
     steps:
       - id: notify-start
-        uses: kevit-io/grwt-api-node-deployment-notifications/.github/actions/notify-deployment@main
+        uses: kevit-io/grwt-api-node-deployment-notifications/.github/actions/notify-deployment@v1
         with:
           type: start
           environment: ${{ env.NOTIFY_ENV }}
@@ -79,7 +79,7 @@ jobs:
       # ... build and deploy steps ...
 
       - if: always()
-        uses: kevit-io/grwt-api-node-deployment-notifications/.github/actions/notify-deployment@main
+        uses: kevit-io/grwt-api-node-deployment-notifications/.github/actions/notify-deployment@v1
         with:
           type: finish
           status: ${{ job.status == 'success' && 'success' || 'fail' }}
@@ -91,7 +91,7 @@ jobs:
           channel_id: ${{ secrets.DEVELOPERS_TEAMS_CHANNEL_ID }}
 
       - if: failure()
-        uses: kevit-io/grwt-api-node-deployment-notifications/.github/actions/notify-deployment@main
+        uses: kevit-io/grwt-api-node-deployment-notifications/.github/actions/notify-deployment@v1
         with:
           type: alert
           status: fail
@@ -121,7 +121,7 @@ matters most. Put the result notification in one final job instead:
       NOTIFY_ENV: ${{ needs.parse-tag.outputs.env }}
       OK: ${{ needs.build-and-push.result == 'success' && needs.deploy-k8s.result == 'success' }}
     steps:
-      - uses: kevit-io/grwt-api-node-deployment-notifications/.github/actions/notify-deployment@main
+      - uses: kevit-io/grwt-api-node-deployment-notifications/.github/actions/notify-deployment@v1
         with:
           type: finish
           status: ${{ env.OK == 'true' && 'success' || 'fail' }}
@@ -133,7 +133,7 @@ matters most. Put the result notification in one final job instead:
           channel_id: ${{ secrets.DEVELOPERS_TEAMS_CHANNEL_ID }}
 
       - if: env.OK != 'true'
-        uses: kevit-io/grwt-api-node-deployment-notifications/.github/actions/notify-deployment@main
+        uses: kevit-io/grwt-api-node-deployment-notifications/.github/actions/notify-deployment@v1
         with:
           type: alert
           status: fail
